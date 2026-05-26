@@ -1,4 +1,4 @@
-# Drone-TurtleBot Bridge 🛸🤖
+# Drone-TurtleBot Bridge 
 
 A ROS 2 + MAVLink framework for **drone-to-ground-robot coordination**. A Pixhawk flight controller (carried by a person or mounted on a drone) provides GPS position via MAVLink, and a TurtleBot3 ground robot autonomously follows the drone's position in real time.
 
@@ -143,6 +143,4 @@ OPENAI_API_KEY=sk-your-key-here
 
 ---
 
-## License
 
-MIT
