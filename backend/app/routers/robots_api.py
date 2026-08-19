@@ -81,7 +81,7 @@ async def connect_robot(robot_id: str, gw: GatewayState = Depends(get_gateway)):
     adapter.set_state_listener(_on_state)
     gw.registry.attach_adapter(robot_id, adapter)
     gw.registry.mark_connected(robot_id, registration)
-    gw.telemetry_store.add_event(
+    await gw.emit_event(
         MissionEvent(type="ROBOT_CONNECTED", severity=EventSeverity.INFO, robot_ids=[robot_id], message=f"{robot_id} connected")
     )
     return _serialize(gw.registry.get(robot_id))
@@ -95,7 +95,7 @@ async def disconnect_robot(robot_id: str, gw: GatewayState = Depends(get_gateway
     if robot.adapter:
         await robot.adapter.disconnect()
     gw.registry.mark_disconnected(robot_id)
-    gw.telemetry_store.add_event(
+    await gw.emit_event(
         MissionEvent(type="ROBOT_DISCONNECTED", severity=EventSeverity.WARNING, robot_ids=[robot_id], message=f"{robot_id} disconnected")
     )
     return _serialize(gw.registry.get(robot_id))

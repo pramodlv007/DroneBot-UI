@@ -70,7 +70,7 @@ async def _control_tick(gw: GatewayState) -> None:
     if coordination_state.tracking_error_m is not None:
         coord_mgr.record_stabilization(coordination_state.tracking_error_m)
 
-    _update_mission_from_tracking(gw, coordination_state)
+    await _update_mission_from_tracking(gw, coordination_state)
     _update_system_health(gw)
 
     if mission_state.recording and gw.experiment_recorder.active_experiment_id:
@@ -85,18 +85,18 @@ async def _control_tick(gw: GatewayState) -> None:
     await gw.ws_manager.broadcast("system_health", store.system_health.model_dump(mode="json"))
 
 
-def _update_mission_from_tracking(gw: GatewayState, coordination_state) -> None:
+async def _update_mission_from_tracking(gw: GatewayState, coordination_state) -> None:
     from app.models import CoordinationTrackingState
 
     mission_state = gw.mission_manager.state
     if mission_state.state == MissionStateEnum.RUNNING and coordination_state.state == CoordinationTrackingState.LOST:
         gw.mission_manager.degrade()
-        gw.telemetry_store.add_event(
+        await gw.emit_event(
             MissionEvent(type="TRACKING_LOST", severity=EventSeverity.WARNING, message="Tracking error exceeded LOST threshold")
         )
     elif mission_state.state == MissionStateEnum.DEGRADED and coordination_state.state == CoordinationTrackingState.TRACKING:
         gw.mission_manager.recover()
-        gw.telemetry_store.add_event(MissionEvent(type="TRACKING_RECOVERED", severity=EventSeverity.INFO))
+        await gw.emit_event(MissionEvent(type="TRACKING_RECOVERED", severity=EventSeverity.INFO))
 
 
 def _update_system_health(gw: GatewayState) -> None:

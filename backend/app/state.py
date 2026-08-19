@@ -13,6 +13,7 @@ from app.coordination_manager import CoordinationManager
 from app.db import ExperimentRepository, SQLiteExperimentRepository
 from app.experiment_recorder import ExperimentRecorder
 from app.mission_manager import MissionManager
+from app.models import MissionEvent
 from app.robot_registry import RobotRegistry
 from app.safety_manager import SafetyManager
 from app.supervisor import build_supervisor
@@ -46,3 +47,12 @@ class GatewayState:
 
         self.telemetry_store = TelemetryStore()
         self.ws_manager = UIConnectionManager()
+
+    async def emit_event(self, event: MissionEvent) -> None:
+        """The only path that should add a MissionEvent: stores it AND
+        broadcasts it live over the 'events' WS topic. Routers/loops must
+        `await gw.emit_event(...)` rather than calling
+        telemetry_store.add_event() directly, or the Timeline panel will
+        only ever see events that existed at initial-snapshot time."""
+        self.telemetry_store.add_event(event)
+        await self.ws_manager.broadcast("events", event.model_dump(mode="json"))

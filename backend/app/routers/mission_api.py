@@ -101,7 +101,7 @@ async def start_mission(body: StartMissionRequest, gw: GatewayState = Depends(ge
     except InvalidTransitionError as exc:
         raise HTTPException(409, str(exc)) from exc
 
-    gw.telemetry_store.add_event(
+    await gw.emit_event(
         MissionEvent(
             type="MISSION_STARTED",
             severity=EventSeverity.INFO,
@@ -119,7 +119,7 @@ async def pause_mission(gw: GatewayState = Depends(get_gateway)):
     except InvalidTransitionError as exc:
         raise HTTPException(409, str(exc)) from exc
     gw.coordination_manager.pause()
-    gw.telemetry_store.add_event(MissionEvent(type="MISSION_PAUSED", severity=EventSeverity.INFO))
+    await gw.emit_event(MissionEvent(type="MISSION_PAUSED", severity=EventSeverity.INFO))
     return state.model_dump(mode="json")
 
 
@@ -131,7 +131,7 @@ async def resume_mission(gw: GatewayState = Depends(get_gateway)):
         raise HTTPException(409, str(exc)) from exc
     robot_types = {r.robot_id: gw.registry.robot_type(r.robot_id) for r in gw.registry.all()}
     gw.coordination_manager.resume(robot_types)
-    gw.telemetry_store.add_event(MissionEvent(type="MISSION_RESUMED", severity=EventSeverity.INFO))
+    await gw.emit_event(MissionEvent(type="MISSION_RESUMED", severity=EventSeverity.INFO))
     return state.model_dump(mode="json")
 
 
@@ -143,7 +143,7 @@ async def stop_mission(gw: GatewayState = Depends(get_gateway)):
         raise HTTPException(409, str(exc)) from exc
     if gw.mission_manager.state.recording:
         gw.experiment_recorder.stop(status="COMPLETED")
-    gw.telemetry_store.add_event(MissionEvent(type="MISSION_STOPPED", severity=EventSeverity.INFO))
+    await gw.emit_event(MissionEvent(type="MISSION_STOPPED", severity=EventSeverity.INFO))
     return state.model_dump(mode="json")
 
 
@@ -165,7 +165,7 @@ async def emergency_stop(body: EmergencyStopRequest, gw: GatewayState = Depends(
         if robot.connected and robot.adapter is not None:
             await robot.adapter.send_command(RobotCommand(robot_id=robot.robot_id, source="safety_manager.emergency_stop"))
 
-    gw.telemetry_store.add_event(
+    await gw.emit_event(
         MissionEvent(type="EMERGENCY_STOP", severity=EventSeverity.CRITICAL, message=f"Triggered by {body.source}")
     )
     return {"mission": gw.mission_manager.state.model_dump(mode="json"), "emergency": gw.safety_manager.emergency_info()}
@@ -178,7 +178,7 @@ async def clear_emergency(gw: GatewayState = Depends(get_gateway)):
         gw.mission_manager.ready()
     except InvalidTransitionError as exc:
         raise HTTPException(409, str(exc)) from exc
-    gw.telemetry_store.add_event(MissionEvent(type="EMERGENCY_CLEARED", severity=EventSeverity.INFO))
+    await gw.emit_event(MissionEvent(type="EMERGENCY_CLEARED", severity=EventSeverity.INFO))
     return gw.mission_manager.state.model_dump(mode="json")
 
 
@@ -194,7 +194,7 @@ async def set_roles(body: SetRolesRequest, gw: GatewayState = Depends(get_gatewa
     robot_types = {rid: gw.registry.robot_type(rid) for rid in (body.leader_id, body.follower_id)}
     gw.coordination_manager.set_roles(body.leader_id, body.follower_id, robot_types, current_tracking_error)
 
-    gw.telemetry_store.add_event(
+    await gw.emit_event(
         MissionEvent(
             type="ROLE_SWITCH",
             severity=EventSeverity.INFO,
