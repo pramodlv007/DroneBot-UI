@@ -1,3 +1,29 @@
 .env
 __pycache__/
 *.pyc
+
+# Backend
+backend/.venv/
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Frontend
+ui/node_modules/
+ui/dist/
+ui/.vite/
+
+# ROS2
+ros_node/build/
+ros_node/install/
+ros_node/log/
+
+# Experiment exports (kept out of git; use experiments/ for curated results only)
+experiments/**/*.json
+experiments/**/*.csv
+experiments/**/*.mcap
+experiments/**/*.bag
+
+.DS_Store
+*.log

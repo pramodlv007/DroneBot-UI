@@ -1,0 +1,35 @@
+# System-wide configuration: safety thresholds, networking, persistence, LLM.
+
+safety:
+  max_tracking_error_m: 3.0
+  max_latency_ms: 500
+  heartbeat_timeout_s: 2.0
+  telemetry_stale_s: 2.0
+  max_command_rate_hz: 20
+  min_battery_percent: 15
+
+gateway:
+  host: "0.0.0.0"
+  port: 8000
+  # WebSocket endpoint the ROS2 turtlebot node (ros_node/) connects out to.
+  # Kept as a client->server connection so the gateway never needs inbound
+  # network access to the robot, only the reverse.
+  ws_ingest_path: "/ws/ingest"
+  # CORS origins allowed to reach the REST/WebSocket API. Restrict this to
+  # your operator workstation(s) in any non-lab deployment.
+  cors_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
+persistence:
+  driver: sqlite
+  sqlite_path: "./data/experiments.db"
+
+supervisor:
+  # mock | disabled | openai | claude
+  provider: "mock"
+  interval_s: 5.0
+  # Model ids are read from environment variables (OPENAI_MODEL /
+  # ANTHROPIC_MODEL) — never hard-code a specific model id here.
+
+mode: "SIMULATION"   # SIMULATION | TEST | PHYSICAL

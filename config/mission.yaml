@@ -1,0 +1,23 @@
+# Mission / coordination configuration.
+
+coordination:
+  # Meters between leader and follower the coordination controller aims for.
+  target_separation_m: 1.5
+
+  # Default leader/follower assignment at mission start. Either robotId
+  # from robots.yaml, or null to start in MANUAL/IDLE with no assignment.
+  default_leader: drone_01
+  default_follower: turtlebot_01
+
+  # Coordination "state" thresholds — see backend/app/coordination_manager.py
+  tracking_error_degraded_m: 2.0   # TRACKING -> DEGRADED above this
+  tracking_error_lost_m: 4.0       # DEGRADED -> LOST above this
+
+mission:
+  # Default mission identifier prefix used when the operator doesn't supply one.
+  id_prefix: "MISSION"
+
+control:
+  rate_hz: 10
+  max_linear_speed_mps: 0.22   # TurtleBot3 Burger max
+  max_angular_speed_radps: 1.0

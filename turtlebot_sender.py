@@ -1,24 +1,33 @@
+# DEPRECATED: superseded by ros_node/turtlebot_bridge_node.py, which publishes
+# normalized RobotState to the unified gateway instead of raw UDP JSON, and
+# routes all /cmd_vel commands through the gateway's SafetyManager rather than
+# publishing directly from a UDP listener. Kept only for reference/rollback.
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
 
 import socket
 import json
 import threading
+import time
 
 PC_IP = "10.215.31.111"
 PC_PORT = 5005
 
 CMD_LISTEN_PORT = 5006  # Port to receive drone turn commands from PC
 
+# Bounded so a malformed/spoofed UDP command can never exceed the platform's
+# real turn-rate limit (see [[safety-manager]] in the new architecture).
+TURN_ANGULAR_SPEED = 0.5   # rad/s
+TURN_PULSE_SEC = 0.6       # how long to hold the turn before stopping
+
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
-def command_listener():
-    """Background thread: receives turn commands from drone (via PC) and logs them.
-
-    To make the robot physically turn, publish a Twist to /cmd_vel here,
-    or send a Nav2 waypoint goal.
+def command_listener(cmd_vel_pub, get_logger):
+    """Background thread: receives turn commands from drone (via PC) and
+    drives the TurtleBot with a short, clamped angular-velocity pulse.
     """
     cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     cmd_sock.bind(("0.0.0.0", CMD_LISTEN_PORT))
@@ -40,14 +49,18 @@ def command_listener():
             print(f"  Raw unix ts: {cmd.get('telemetry_timestamp', 'N/A')}")
             print(f"{'='*50}")
 
-            # TODO: Uncomment and adapt once ROS2 cmd_vel publishing is wired up
-            # from geometry_msgs.msg import Twist
-            # twist = Twist()
-            # if cmd_type == "LEFT_TURN":
-            #     twist.angular.z = 0.5   # positive = counter-clockwise (left)
-            # elif cmd_type == "RIGHT_TURN":
-            #     twist.angular.z = -0.5  # negative = clockwise (right)
-            # cmd_vel_pub.publish(twist)
+            twist = Twist()
+            if cmd_type == "LEFT_TURN":
+                twist.angular.z = TURN_ANGULAR_SPEED
+            elif cmd_type == "RIGHT_TURN":
+                twist.angular.z = -TURN_ANGULAR_SPEED
+            else:
+                get_logger().warn(f"Unknown command type: {cmd_type}")
+                continue
+
+            cmd_vel_pub.publish(twist)
+            time.sleep(TURN_PULSE_SEC)
+            cmd_vel_pub.publish(Twist())  # stop
 
         except Exception as e:
             print(f"[CMD LISTENER] Error: {e}")
@@ -65,7 +78,13 @@ class TurtleBotSender(Node):
             10
         )
 
-        t = threading.Thread(target=command_listener, daemon=True)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
+        t = threading.Thread(
+            target=command_listener,
+            args=(self.cmd_vel_pub, self.get_logger),
+            daemon=True,
+        )
         t.start()
 
         self.get_logger().info("Sending TurtleBot position via UDP")

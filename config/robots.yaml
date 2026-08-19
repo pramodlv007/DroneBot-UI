@@ -1,0 +1,53 @@
+# Robot registry configuration.
+#
+# Every robot the gateway can connect to is declared here. Adding a robot
+# never requires touching backend or frontend code — the UI renders robots
+# dynamically from GET /api/robots, which is populated from this file.
+#
+# `connection` strings follow pymavlink conventions for MAVLink robots:
+#   "udp:0.0.0.0:14550"   listen for UDP telemetry on this host/port
+#   "tcp:192.168.1.50:5760"
+#   "COM10" / "/dev/ttyUSB0"   direct serial, use with `baud`
+#
+# ROS2 robots are addressed by the namespace their ros_node instance was
+# launched with, and connect to this gateway's `ws_ingest_url` (see
+# system.yaml) rather than the gateway reaching out to them.
+
+robots:
+  drone_01:
+    type: UAV
+    protocol: MAVLink
+    display_name: "Pixhawk UAV"
+    connection: "udp:0.0.0.0:14550"
+    baud: 57600
+    target_system: 1
+    target_component: 1
+    capabilities:
+      - GPS
+      - ATTITUDE
+      - ALTITUDE
+      - BATTERY
+      - LINEAR_VELOCITY_CONTROL
+      - FLIGHT_MODE
+      - ARM
+      - DISARM
+
+  turtlebot_01:
+    type: UGV
+    protocol: ROS2
+    display_name: "TurtleBot3 Burger"
+    namespace: "/turtlebot_01"
+    odom_topic: "odom"
+    battery_topic: "battery_state"
+    cmd_vel_topic: "cmd_vel"
+    capabilities:
+      - POSITION
+      - ODOMETRY
+      - BATTERY
+      - LINEAR_VELOCITY_CONTROL
+      - ANGULAR_VELOCITY_CONTROL
+
+# Additional robots (more TurtleBots, a quadruped, a manipulator, ...) are
+# added here with a new adapter/capability set — no frontend redesign
+# required. See docs/architecture.md "Extensibility" for the adapter
+# contract new robot types must implement.

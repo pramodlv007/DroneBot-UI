@@ -1,4 +1,3 @@
-from openai.types.responses import web_search_tool
 import os
 import time
 import math
@@ -45,13 +44,13 @@ STOP_DISTANCE_M = 0.25
 # Set to None to auto-detect from Pixhawk compass.
 # Auto-detect: place Pixhawk ON the TurtleBot (facing same direction)
 # at startup, wait for "Heading locked" message, then pick it up and go.
-TURTLEBOT_FACING_DEG = 
+TURTLEBOT_FACING_DEG = None
 
 ENABLE_TURTLEBOT_MOTION = True
 ENABLE_LLM_SUPERVISOR = False     # Optional slow supervisor
 
 LLM_INTERVAL_SEC = 5.0
-OPENAI_MODEL = "gpt-5.5"
+OPENAI_MODEL = "gpt-4o-mini"
 
 
 # ============================================================

@@ -1,0 +1,18 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+eval_type_backport>=0.2   # lets pydantic/FastAPI evaluate `X | None` syntax on Python <3.10
+pyyaml>=6.0
+python-dotenv>=1.0
+pymavlink>=2.4.40
+websockets>=12.0
+httpx>=0.27
+
+# Optional LLM supervisor backends (only needed if config/system.yaml
+# supervisor.provider is set to "openai" or "claude")
+openai>=1.30
+anthropic>=0.30
+
+# Dev/test
+pytest>=8.0
+pytest-asyncio>=0.23
