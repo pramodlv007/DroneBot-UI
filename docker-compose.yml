@@ -1,0 +1,29 @@
+# Simulation/demo deployment: `docker compose up` runs the gateway in
+# SIMULATION mode (mock drone + TurtleBot adapters, no hardware, no ROS2
+# needed) and the built frontend behind nginx. This is deliberately NOT
+# how you run against physical robots — see README.md "Physical Robot
+# Mode", which runs the ROS2 node natively on the robot's companion
+# computer (ROS2/DDS networking inside Docker is its own can of worms
+# this project sidesteps rather than fights, per §45).
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DEPLOYMENT_MODE=SIMULATION
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./config:/config:ro
+      - backend_data:/app/data
+
+  frontend:
+    build: ./ui
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:
