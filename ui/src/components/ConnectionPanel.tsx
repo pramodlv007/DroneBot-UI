@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/services/api";
 import type { RegisteredRobot } from "@/types/robot";
 import { robotLabel } from "@/utils/format";
+import RobotConnectionSettings from "./RobotConnectionSettings";
 
 interface Props {
   onAllConnected?: () => void;
@@ -11,6 +12,7 @@ export default function ConnectionPanel({ onAllConnected }: Props) {
   const [robots, setRobots] = useState<RegisteredRobot[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -62,7 +64,7 @@ export default function ConnectionPanel({ onAllConnected }: Props) {
 
       <div className="connection-cards">
         {robots.map((robot) => (
-          <div key={robot.robotId} className="connection-card">
+          <div key={robot.robotId} className="connection-card" style={{ width: 300 }}>
             <div className="robot-type">
               {robot.protocol} · {robot.robotType}
             </div>
@@ -70,19 +72,40 @@ export default function ConnectionPanel({ onAllConnected }: Props) {
             <div className="robot-detail">
               {robot.connected
                 ? `Telemetry: ${robot.state ? "live" : "waiting..."}`
-                : "Not connected"}
+                : robot.connection.connection ?? robot.connection.namespace ?? "Not configured"}
             </div>
-            <button
-              className={robot.connected ? "" : "primary"}
-              disabled={busy === robot.robotId}
-              onClick={() => toggle(robot)}
-            >
-              {busy === robot.robotId ? "..." : robot.connected ? "DISCONNECT" : "CONNECT"}
-            </button>
+
+            <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+              <button
+                className={robot.connected ? "" : "primary"}
+                disabled={busy === robot.robotId}
+                onClick={() => toggle(robot)}
+              >
+                {busy === robot.robotId ? "..." : robot.connected ? "DISCONNECT" : "CONNECT"}
+              </button>
+              <button
+                disabled={robot.connected}
+                title={robot.connected ? "Disconnect first to edit connection settings" : "Edit connection settings"}
+                onClick={() => setEditingId(editingId === robot.robotId ? null : robot.robotId)}
+              >
+                {editingId === robot.robotId ? "CLOSE" : "⚙ CONFIGURE"}
+              </button>
+            </div>
+
             {robot.connected && (
               <div style={{ marginTop: 10, color: "var(--ok)", fontSize: 11 }}>
                 ✓ Connected — {robot.capabilities.length} capabilities
               </div>
+            )}
+
+            {editingId === robot.robotId && (
+              <RobotConnectionSettings
+                robot={robot}
+                onSaved={() => {
+                  refresh();
+                  setEditingId(null);
+                }}
+              />
             )}
           </div>
         ))}

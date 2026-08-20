@@ -22,6 +22,8 @@ export const api = {
   getRobot: (id: string) => request<RegisteredRobot>(`/api/robots/${id}`),
   connectRobot: (id: string) => request<RegisteredRobot>(`/api/robots/${id}/connect`, { method: "POST" }),
   disconnectRobot: (id: string) => request<RegisteredRobot>(`/api/robots/${id}/disconnect`, { method: "POST" }),
+  updateRobotConfig: (id: string, body: Partial<{ connection: string; baud: number; target_system: number; target_component: number; namespace: string }>) =>
+    request<RegisteredRobot>(`/api/robots/${id}/config`, { method: "PATCH", body: JSON.stringify(body) }),
 
   injectFault: (id: string, fault: Record<string, unknown>) =>
     request(`/api/robots/${id}/fault`, { method: "POST", body: JSON.stringify(fault) }),

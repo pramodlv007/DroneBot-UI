@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.adapters.drone_adapter import DroneAdapter
 from app.adapters.mock_drone_adapter import MockDroneAdapter
@@ -27,6 +28,17 @@ def _serialize(robot) -> dict:
         "capabilities": robot.registration.capabilities if robot.registration else robot.config.capabilities,
         "lastHeartbeatMs": robot.last_heartbeat_ms,
         "state": robot.last_state.model_dump(mode="json") if robot.last_state else None,
+        # Connection parameters, so the UI can show/edit what's currently
+        # configured without reading config/robots.yaml directly. Never
+        # includes anything secret — these are addresses/ports, not
+        # credentials.
+        "connection": {
+            "connection": robot.config.connection,
+            "baud": robot.config.baud,
+            "targetSystem": robot.config.target_system,
+            "targetComponent": robot.config.target_component,
+            "namespace": robot.config.namespace,
+        },
     }
 
 
@@ -58,6 +70,32 @@ def _build_adapter(gw: GatewayState, robot_id: str, robot):
         return TurtleBotAdapter(robot_id, robot.config)
 
     raise HTTPException(400, f"Unsupported protocol for {robot_id}: {robot.config.protocol}")
+
+
+class RobotConnectionUpdate(BaseModel):
+    """Fields an operator can edit from the UI's connection settings
+    panel, instead of hand-editing config/robots.yaml and restarting the
+    gateway. Only takes effect for adapters built after the update — a
+    currently-connected robot must be disconnected first."""
+
+    connection: str | None = None       # MAVLink: "COM10", "udp:0.0.0.0:14550", ...
+    baud: int | None = None             # MAVLink serial baud rate
+    target_system: int | None = None
+    target_component: int | None = None
+    namespace: str | None = None        # ROS2: informational, for the launch-command helper
+
+
+@router.patch("/{robot_id}/config")
+async def update_robot_config(robot_id: str, body: RobotConnectionUpdate, gw: GatewayState = Depends(get_gateway)):
+    robot = gw.registry.get(robot_id)
+    if robot is None:
+        raise HTTPException(404, f"Unknown robot: {robot_id}")
+    if robot.connected:
+        raise HTTPException(409, f"Disconnect {robot_id} before changing its connection settings")
+
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    robot.config = robot.config.model_copy(update=updates)
+    return _serialize(robot)
 
 
 @router.post("/{robot_id}/connect")

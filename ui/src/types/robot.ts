@@ -73,6 +73,14 @@ export interface RobotState {
 // The shape GET /api/robots and /api/robots/{id} return (see
 // backend/app/routers/robots_api.py's _serialize) — camelCase envelope
 // around a snake_case RobotState, exactly what the backend emits.
+export interface RobotConnectionParams {
+  connection: string | null;
+  baud: number | null;
+  targetSystem: number | null;
+  targetComponent: number | null;
+  namespace: string | null;
+}
+
 export interface RegisteredRobot {
   robotId: string;
   robotType: string;
@@ -82,4 +90,5 @@ export interface RegisteredRobot {
   capabilities: string[];
   lastHeartbeatMs: number | null;
   state: RobotState | null;
+  connection: RobotConnectionParams;
 }
