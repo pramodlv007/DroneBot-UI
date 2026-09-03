@@ -81,6 +81,16 @@ export interface RobotConnectionParams {
   namespace: string | null;
 }
 
+// Indoor/GPS-denied dead-reckoning tracking (UAV only). `supported` is
+// false for robot types/adapters that don't implement it (e.g. TurtleBots,
+// which already get GPS-free position from wheel odometry) — the UI must
+// hide the control entirely rather than show a button that always errors.
+export interface DeadReckoningInfo {
+  supported: boolean;
+  enabled: boolean;
+  active: boolean;
+}
+
 export interface RegisteredRobot {
   robotId: string;
   robotType: string;
@@ -91,4 +101,5 @@ export interface RegisteredRobot {
   lastHeartbeatMs: number | null;
   state: RobotState | null;
   connection: RobotConnectionParams;
+  deadReckoning: DeadReckoningInfo;
 }

@@ -70,6 +70,20 @@ class RobotRegistry:
         if robot:
             robot.connected = False
 
+    def mark_stale(self, robot_id: str) -> Optional[RobotAdapter]:
+        """Called by the staleness watchdog when a robot stops sending
+        telemetry.  Marks disconnected, clears last_state, detaches the
+        adapter, and returns it so the caller can await adapter.disconnect()
+        to release OS resources (serial port handle, threads)."""
+        robot = self._robots.get(robot_id)
+        if robot:
+            robot.connected = False
+            robot.last_state = None
+            adapter = robot.adapter
+            robot.adapter = None
+            return adapter
+        return None
+
     def update_state(self, robot_id: str, state: RobotState) -> None:
         robot = self._robots.get(robot_id)
         if robot is None:

@@ -33,6 +33,7 @@ from app.models import (
     MissionEvent,
     MissionStateEnum,
     RobotState,
+    now_ms,
 )
 from app.routers import experiment_api, health_api, mission_api, robots_api
 from app.state import GatewayState
@@ -54,6 +55,79 @@ async def _control_loop(gw: GatewayState) -> None:
 async def _control_tick(gw: GatewayState) -> None:
     store = gw.telemetry_store
     coord_mgr = gw.coordination_manager
+
+    # ── Staleness watchdog ────────────────────────────────────────────────
+    # Any connected robot that has stopped sending telemetry for longer than
+    # telemetry_stale_s is considered gone.  We mark it stale (connected=False,
+    # state cleared) and emit an event so the UI reflects reality immediately.
+    #
+    # IMPORTANT: this must use now_ms() (wall clock, the same clock every
+    # RobotState/heartbeat timestamp is stamped with) — NOT
+    # asyncio.get_event_loop().time(), which is a monotonic clock on an
+    # unrelated epoch (process/boot start). Comparing the two produced a
+    # meaningless age that was never > the threshold, so this watchdog never
+    # actually fired: a robot whose bridge script died or hung without a
+    # clean TCP close stayed "connected" forever with frozen/no telemetry.
+    stale_threshold_ms = gw.settings.safety.telemetry_stale_s * 1000
+    now_ms_val = now_ms()
+    for robot in gw.registry.all():
+        if not robot.connected:
+            continue
+        state = store.robot_states.get(robot.robot_id)
+        if state is None:
+            # If the robot is an ingest robot with an open WebSocket, keep it alive
+            if robot.adapter is not None and getattr(robot.adapter, "_ws", None) is not None:
+                robot.last_heartbeat_ms = now_ms_val
+                continue
+
+            # Connected (bridge socket attached / heartbeat received) but not
+            # a single telemetry sample has arrived yet. Give it up to the
+            # same stale threshold from the moment it connected, then treat
+            # it as a failed connection rather than leaving it stuck
+            # "connected" with nothing to show.
+            if robot.last_heartbeat_ms is not None and (now_ms_val - robot.last_heartbeat_ms) > stale_threshold_ms:
+                logger.warning("Robot %s connected but produced no telemetry — marking disconnected", robot.robot_id)
+                stale_adapter = gw.registry.mark_stale(robot.robot_id)
+                if stale_adapter is not None:
+                    try:
+                        await stale_adapter.disconnect()
+                    except Exception:
+                        pass
+                await gw.emit_event(
+                    MissionEvent(
+                        type="TELEMETRY_NEVER_RECEIVED",
+                        severity=EventSeverity.WARNING,
+                        robot_ids=[robot.robot_id],
+                        message=f"{robot.robot_id} connected but sent no telemetry — marking offline",
+                    )
+                )
+            continue
+
+        # If the robot has an active open WebSocket, don't drop it if stationary
+        if robot.adapter is not None and getattr(robot.adapter, "_ws", None) is not None:
+            continue
+
+        age_ms = now_ms_val - state.received_timestamp_ms
+        if age_ms > stale_threshold_ms:
+            logger.warning("Robot %s telemetry stale (%d ms) — marking disconnected", robot.robot_id, age_ms)
+            stale_adapter = gw.registry.mark_stale(robot.robot_id)
+            if stale_adapter is not None:
+                try:
+                    await stale_adapter.disconnect()
+                except Exception:
+                    pass
+            # Remove stale state so it stops broadcasting
+            store.robot_states.pop(robot.robot_id, None)
+            await gw.emit_event(
+                MissionEvent(
+                    type="TELEMETRY_STALE",
+                    severity=EventSeverity.WARNING,
+                    robot_ids=[robot.robot_id],
+                    message=f"{robot.robot_id} telemetry stale ({age_ms:.0f} ms) — marking offline",
+                )
+            )
+    # ─────────────────────────────────────────────────────────────────────
+
     leader_state = store.robot_states.get(coord_mgr.leader_id) if coord_mgr.leader_id else None
     follower_state = store.robot_states.get(coord_mgr.follower_id) if coord_mgr.follower_id else None
 
@@ -216,17 +290,46 @@ async def ui_websocket(ws: WebSocket) -> None:
 
 
 @app.websocket("/ws/ingest")
-async def ingest_websocket(ws: WebSocket, robot_id: str) -> None:
+async def ingest_websocket(ws: WebSocket, robot_id: str = "turtlebot_01") -> None:
     """Used by ros_node/turtlebot_bridge_node.py (§10). The ROS2 node
     connects out to us; we never dial in to the robot."""
     gw: GatewayState = ws.app.state.gateway
     robot = gw.registry.get(robot_id)
-    if robot is None or robot.adapter is None or not hasattr(robot.adapter, "attach_ws"):
-        await ws.close(code=4404, reason=f"Unknown or unarmed TurtleBot adapter: {robot_id}")
+    if robot is None:
+        await ws.close(code=4404, reason=f"Unknown robot: {robot_id}")
         return
+
+    # If the operator hasn't clicked CONNECT in the UI yet, auto-arm the adapter
+    if robot.adapter is None or not hasattr(robot.adapter, "attach_ws"):
+        from app.adapters.turtlebot_adapter import TurtleBotAdapter
+        adapter = TurtleBotAdapter(robot_id, robot.config)
+        reg = await adapter.connect()
+
+        def _on_state(state, _gw=gw, _robot_id=robot_id):
+            _gw.telemetry_store.update_robot_state(state)
+            _gw.registry.update_state(_robot_id, state)
+
+        adapter.set_state_listener(_on_state)
+        gw.registry.attach_adapter(robot_id, adapter)
+        gw.registry.mark_connected(robot_id, reg)
 
     await ws.accept()
     robot.adapter.attach_ws(ws)
+    if robot.registration:
+        gw.registry.mark_connected(robot_id, robot.registration)
+    # Seed initial UGV state in telemetry_store so UI and coordination immediately register it
+    initial_ugv_state = robot.adapter.get_state()
+    if initial_ugv_state:
+        gw.telemetry_store.update_robot_state(initial_ugv_state)
+        gw.registry.update_state(robot_id, initial_ugv_state)
+    await gw.emit_event(
+        MissionEvent(
+            type="ROBOT_CONNECTED",
+            severity=EventSeverity.INFO,
+            robot_ids=[robot_id],
+            message=f"{robot_id} ROS2 node attached — live telemetry active",
+        )
+    )
 
     try:
         while True:
@@ -235,8 +338,18 @@ async def ingest_websocket(ws: WebSocket, robot_id: str) -> None:
                 continue
             state = RobotState.model_validate(raw["state"])
             robot.adapter.ingest_state(state)
-    except WebSocketDisconnect:
+    except Exception:
         pass
     finally:
-        robot.adapter.detach_ws()
+        if robot.adapter is not None and hasattr(robot.adapter, "detach_ws"):
+            robot.adapter.detach_ws()
         gw.registry.mark_disconnected(robot_id)
+        gw.telemetry_store.robot_states.pop(robot_id, None)
+        await gw.emit_event(
+            MissionEvent(
+                type="ROBOT_DISCONNECTED",
+                severity=EventSeverity.WARNING,
+                robot_ids=[robot_id],
+                message=f"{robot_id} ROS2 bridge disconnected",
+            )
+        )

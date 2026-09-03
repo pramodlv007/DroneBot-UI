@@ -32,4 +32,4 @@ supervisor:
   # Model ids are read from environment variables (OPENAI_MODEL /
   # ANTHROPIC_MODEL) — never hard-code a specific model id here.
 
-mode: "SIMULATION"   # SIMULATION | TEST | PHYSICAL
+mode: "PHYSICAL"   # SIMULATION | TEST | PHYSICAL

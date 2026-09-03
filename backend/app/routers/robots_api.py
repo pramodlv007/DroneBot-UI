@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -19,6 +21,7 @@ router = APIRouter(prefix="/api/robots", tags=["robots"])
 
 
 def _serialize(robot) -> dict:
+    dr_supported = robot.adapter is not None and hasattr(robot.adapter, "set_dead_reckoning")
     return {
         "robotId": robot.robot_id,
         "robotType": robot.config.type,
@@ -38,6 +41,16 @@ def _serialize(robot) -> dict:
             "targetSystem": robot.config.target_system,
             "targetComponent": robot.config.target_component,
             "namespace": robot.config.namespace,
+        },
+        # Indoor/GPS-denied dead-reckoning tracking (UAV/MAVLink only —
+        # TurtleBots already get GPS-free position from wheel odometry).
+        # "supported" lets the UI hide the control entirely for robot types
+        # that don't have it, rather than showing a button that always
+        # errors.
+        "deadReckoning": {
+            "supported": dr_supported,
+            "enabled": robot.adapter.dead_reckoning_enabled if dr_supported and robot.connected else False,
+            "active": bool(robot.last_state.metadata.get("dead_reckoning_active")) if robot.last_state else False,
         },
     }
 
@@ -107,21 +120,66 @@ async def connect_robot(robot_id: str, gw: GatewayState = Depends(get_gateway)):
         return _serialize(robot)
 
     adapter = _build_adapter(gw, robot_id, robot)
-    try:
-        registration = await adapter.connect()
-    except Exception as exc:
-        raise HTTPException(502, f"Failed to connect {robot_id}: {exc}") from exc
 
     def _on_state(state, _gw=gw, _robot_id=robot_id):
         _gw.telemetry_store.update_robot_state(state)
         _gw.registry.update_state(_robot_id, state)
 
     adapter.set_state_listener(_on_state)
+
+    try:
+        registration = await adapter.connect()
+    except Exception as exc:
+        raise HTTPException(502, f"Failed to connect {robot_id}: {exc}") from exc
+
     gw.registry.attach_adapter(robot_id, adapter)
-    gw.registry.mark_connected(robot_id, registration)
-    await gw.emit_event(
-        MissionEvent(type="ROBOT_CONNECTED", severity=EventSeverity.INFO, robot_ids=[robot_id], message=f"{robot_id} connected")
-    )
+
+    # TurtleBotAdapter is ingest-only: connected=True only fires when the
+    # ROS2 bridge node physically attaches via /ws/ingest.  All other
+    # adapters (MAVLink drone, mocks) establish a real connection inside
+    # adapter.connect() so we can mark them connected immediately.
+    if hasattr(adapter, "set_on_connect_cb"):
+        # Capture registration in closure so callback has it
+        _reg = registration
+
+        async def _emit_connected_event():
+            await gw.emit_event(
+                MissionEvent(
+                    type="ROBOT_CONNECTED",
+                    severity=EventSeverity.INFO,
+                    robot_ids=[robot_id],
+                    message=f"{robot_id} ROS2 node attached — live telemetry active",
+                )
+            )
+
+        def _on_ros2_attach(_gw=gw, _robot_id=robot_id, _reg=_reg):
+            _gw.registry.mark_connected(_robot_id, _reg)
+            # Schedule the async event emission back on the event loop
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(_emit_connected_event())
+            except RuntimeError:
+                pass
+
+        adapter.set_on_connect_cb(_on_ros2_attach)
+        # Emit an "armed" event so the UI knows the slot is open
+        await gw.emit_event(
+            MissionEvent(
+                type="ROBOT_ARMED",
+                severity=EventSeverity.INFO,
+                robot_ids=[robot_id],
+                message=f"{robot_id} armed — waiting for ROS2 bridge node to connect",
+            )
+        )
+    else:
+        gw.registry.mark_connected(robot_id, registration)
+        init_state = adapter.get_state()
+        if init_state:
+            _on_state(init_state)
+        await gw.emit_event(
+            MissionEvent(type="ROBOT_CONNECTED", severity=EventSeverity.INFO, robot_ids=[robot_id], message=f"{robot_id} connected")
+        )
+
     return _serialize(gw.registry.get(robot_id))
 
 
@@ -137,6 +195,56 @@ async def disconnect_robot(robot_id: str, gw: GatewayState = Depends(get_gateway
         MissionEvent(type="ROBOT_DISCONNECTED", severity=EventSeverity.WARNING, robot_ids=[robot_id], message=f"{robot_id} disconnected")
     )
     return _serialize(gw.registry.get(robot_id))
+
+
+class DeadReckoningUpdate(BaseModel):
+    enabled: bool
+
+
+@router.post("/{robot_id}/dead-reckoning")
+async def set_dead_reckoning(robot_id: str, body: DeadReckoningUpdate, gw: GatewayState = Depends(get_gateway)):
+    """Toggle indoor/GPS-denied dead-reckoning position tracking for a UAV.
+    Only meaningful while connected — there's no adapter instance to hold
+    the setting otherwise."""
+    robot = gw.registry.get(robot_id)
+    if robot is None:
+        raise HTTPException(404, f"Unknown robot: {robot_id}")
+    if robot.adapter is None or not hasattr(robot.adapter, "set_dead_reckoning"):
+        raise HTTPException(400, f"{robot_id} does not support dead reckoning (connect a UAV first)")
+
+    robot.adapter.set_dead_reckoning(body.enabled)
+    await gw.emit_event(
+        MissionEvent(
+            type="DEAD_RECKONING_TOGGLED",
+            severity=EventSeverity.INFO,
+            robot_ids=[robot_id],
+            message=f"{robot_id} indoor dead-reckoning tracking {'enabled' if body.enabled else 'disabled'}",
+        )
+    )
+    return _serialize(robot)
+
+
+@router.post("/{robot_id}/dead-reckoning/reset")
+async def reset_dead_reckoning(robot_id: str, gw: GatewayState = Depends(get_gateway)):
+    """Re-zero the drift-accumulating dead-reckoning estimate at the
+    vehicle's current position — use when it's physically at a known
+    reference point."""
+    robot = gw.registry.get(robot_id)
+    if robot is None:
+        raise HTTPException(404, f"Unknown robot: {robot_id}")
+    if robot.adapter is None or not hasattr(robot.adapter, "reset_dead_reckoning_origin"):
+        raise HTTPException(400, f"{robot_id} does not support dead reckoning (connect a UAV first)")
+
+    robot.adapter.reset_dead_reckoning_origin()
+    await gw.emit_event(
+        MissionEvent(
+            type="DEAD_RECKONING_RESET",
+            severity=EventSeverity.INFO,
+            robot_ids=[robot_id],
+            message=f"{robot_id} dead-reckoning origin reset to current position",
+        )
+    )
+    return _serialize(robot)
 
 
 @router.post("/{robot_id}/fault")

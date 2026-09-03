@@ -18,7 +18,7 @@ robots:
     type: UAV
     protocol: MAVLink
     display_name: "Pixhawk UAV"
-    connection: "udp:0.0.0.0:14550"
+    connection: "COM4"
     baud: 57600
     target_system: 1
     target_component: 1

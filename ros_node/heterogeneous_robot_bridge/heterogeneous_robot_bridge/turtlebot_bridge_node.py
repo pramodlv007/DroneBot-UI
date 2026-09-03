@@ -39,6 +39,7 @@ from app.coordinate_transformer import CoordinateTransformer  # noqa: E402
 
 import rclpy  # noqa: E402
 from rclpy.node import Node  # noqa: E402
+from rclpy.qos import qos_profile_sensor_data  # noqa: E402
 from nav_msgs.msg import Odometry  # noqa: E402
 from sensor_msgs.msg import BatteryState  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402
@@ -93,8 +94,8 @@ class TurtleBotBridgeNode(Node):
         self._angular_z = 0.0
 
         self.cmd_vel_pub = self.create_publisher(Twist, self.get_parameter("cmd_vel_topic").value, 10)
-        self.create_subscription(Odometry, self.get_parameter("odom_topic").value, self._on_odom, 10)
-        self.create_subscription(BatteryState, self.get_parameter("battery_topic").value, self._on_battery, 10)
+        self.create_subscription(Odometry, self.get_parameter("odom_topic").value, self._on_odom, qos_profile_sensor_data)
+        self.create_subscription(BatteryState, self.get_parameter("battery_topic").value, self._on_battery, qos_profile_sensor_data)
         self.create_timer(1.0 / 20.0, self._watchdog_tick)  # local safety watchdog, independent of the gateway
 
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -107,6 +108,9 @@ class TurtleBotBridgeNode(Node):
     # -- ROS2 callbacks --------------------------------------------------
 
     def _on_odom(self, msg: Odometry) -> None:
+        if not getattr(self, "_odom_logged", False):
+            self._odom_logged = True
+            self.get_logger().info(f"Received first odometry packet! x={msg.pose.pose.position.x:.2f}, y={msg.pose.pose.position.y:.2f}")
         x, y, yaw = self._transformer.turtlebot_odom_to_mission(
             msg.pose.pose.position.x,
             msg.pose.pose.position.y,

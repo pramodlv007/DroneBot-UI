@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.models import HealthState
 from app.state import GatewayState
@@ -31,3 +32,28 @@ async def get_health(gw: GatewayState = Depends(get_gateway)):
         "deploymentMode": gw.settings.deployment_mode,
         "missionState": gw.mission_manager.state.state.value,
     }
+
+
+VALID_MODES = {"SIMULATION", "TEST", "PHYSICAL"}
+
+
+class ModeUpdate(BaseModel):
+    mode: str
+
+
+@router.patch("/mode")
+async def set_deployment_mode(body: ModeUpdate, gw: GatewayState = Depends(get_gateway)):
+    """Switch SIMULATION <-> PHYSICAL at runtime without restarting the backend.
+    Only affects adapters built on the *next* CONNECT call — currently-connected
+    robots keep their existing adapter until disconnected.
+    Fault injection endpoints are still blocked in PHYSICAL mode."""
+    mode = body.mode.upper()
+    if mode not in VALID_MODES:
+        raise HTTPException(400, f"Invalid mode '{mode}'. Must be one of: {sorted(VALID_MODES)}")
+    if mode != "SIMULATION" and gw.registry.all() and any(r.connected for r in gw.registry.all()):
+        raise HTTPException(
+            409,
+            "Disconnect all robots before switching to PHYSICAL mode to avoid mixing simulated and real adapters.",
+        )
+    gw.settings = gw.settings.model_copy(update={"deployment_mode": mode})
+    return {"deploymentMode": gw.settings.deployment_mode}

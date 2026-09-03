@@ -52,7 +52,22 @@ class MockDroneAdapter(RobotAdapter):
         self._last_command: RobotCommand | None = None
         self._task: asyncio.Task | None = None
         self._start_time = time.time()
+        # Mirrors DroneAdapter's dead-reckoning toggle so the same UI control
+        # and REST endpoints work in SIMULATION mode — combine with the
+        # "GPS Loss" fault injection to test the indoor-tracking workflow
+        # without real hardware.
+        self._dr_enabled = False
         self._state = self._build_state()
+
+    def set_dead_reckoning(self, enabled: bool) -> None:
+        self._dr_enabled = enabled
+
+    def reset_dead_reckoning_origin(self) -> None:
+        pass  # simulated pose is ground truth — nothing to re-zero
+
+    @property
+    def dead_reckoning_enabled(self) -> bool:
+        return self._dr_enabled
 
     async def connect(self) -> RobotRegistration:
         self._connected = True
@@ -159,4 +174,5 @@ class MockDroneAdapter(RobotAdapter):
             battery=BatteryState(percentage=self._battery_pct, voltage=12.6 * (self._battery_pct / 100.0 * 0.2 + 0.8)),
             source_timestamp_ms=source_ts,
             received_timestamp_ms=received_ts,
+            metadata={"dead_reckoning_active": self._dr_enabled and fault.gps_loss},
         )

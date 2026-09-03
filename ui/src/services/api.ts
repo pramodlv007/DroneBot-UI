@@ -29,6 +29,14 @@ export const api = {
     request(`/api/robots/${id}/fault`, { method: "POST", body: JSON.stringify(fault) }),
   clearFault: (id: string) => request(`/api/robots/${id}/fault/clear`, { method: "POST" }),
 
+  setDeadReckoning: (id: string, enabled: boolean) =>
+    request<RegisteredRobot>(`/api/robots/${id}/dead-reckoning`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+  resetDeadReckoning: (id: string) =>
+    request<RegisteredRobot>(`/api/robots/${id}/dead-reckoning/reset`, { method: "POST" }),
+
   getMission: () => request<MissionState>("/api/mission"),
   startMission: (body: {
     leader_id: string;
@@ -56,4 +64,9 @@ export const api = {
   exportExperimentUrl: (id: string, format: "json" | "csv") => `/api/experiments/${id}/export?format=${format}`,
 
   getHealth: () => request<Record<string, unknown>>("/api/health"),
+  setDeploymentMode: (mode: string) =>
+    request<{ deploymentMode: string }>("/api/health/mode", {
+      method: "PATCH",
+      body: JSON.stringify({ mode }),
+    }),
 };

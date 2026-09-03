@@ -12,15 +12,18 @@ This keeps the gateway from needing inbound network reachability to the
 robot (which is often on a separate, firewalled robot LAN), and keeps
 rclpy entirely out of the backend process — nothing here imports ROS2.
 
-"Connect" for this adapter means "start accepting an ingest connection for
-this robot_id"; `connected` only becomes true once the ROS2 node actually
-attaches and starts pushing state.
+**Connection semantics**: calling `connect()` only opens/arms the ingest
+slot — `RegisteredRobot.connected` stays False until the ROS2 node
+actually attaches and starts pushing state over `/ws/ingest`.  The caller
+must pass `on_connect_cb` so the registry can be notified on physical
+attach rather than on adapter construction.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+import time
+from typing import Callable, Optional
 
 from app.config import RobotConfig
 from app.models import (
@@ -43,6 +46,8 @@ class TurtleBotAdapter(RobotAdapter):
         self.config = config
         self._armed = False
         self._ws = None  # starlette WebSocket, set by websocket.py on attach
+        self._on_connect_cb: Optional[Callable[[], None]] = None
+        self._last_ingest_ms: int = 0
         self._state = RobotState(
             robot_id=robot_id,
             robot_type=RobotType.UGV,
@@ -52,7 +57,15 @@ class TurtleBotAdapter(RobotAdapter):
             health=HealthState.UNKNOWN,
         )
 
+    def set_on_connect_cb(self, cb: Callable[[], None]) -> None:
+        """Register a callback fired when the ROS2 node physically attaches."""
+        self._on_connect_cb = cb
+
     async def connect(self) -> RobotRegistration:
+        """
+        Arms the ingest slot.  Does NOT set connected=True — that only
+        happens in attach_ws() when the ROS2 bridge node actually dials in.
+        """
         self._armed = True
         return RobotRegistration(
             robot_id=self.robot_id,
@@ -71,7 +84,7 @@ class TurtleBotAdapter(RobotAdapter):
             except Exception:
                 pass
             self._ws = None
-        self._state = self._state.model_copy(update={"connected": False})
+        self._state = self._state.model_copy(update={"connected": False, "health": HealthState.UNKNOWN})
 
     def get_state(self) -> RobotState:
         return self._state
@@ -91,15 +104,27 @@ class TurtleBotAdapter(RobotAdapter):
 
     def attach_ws(self, ws) -> None:
         self._ws = ws
+        # Now the robot is truly connected — notify the registry
+        self._state = self._state.model_copy(update={"connected": True, "health": HealthState.UNKNOWN})
+        if self._on_connect_cb is not None:
+            try:
+                self._on_connect_cb()
+            except Exception:
+                pass
 
     def detach_ws(self) -> None:
         self._ws = None
-        self._state = self._state.model_copy(update={"connected": False})
+        self._state = self._state.model_copy(update={"connected": False, "health": HealthState.UNKNOWN})
 
     def ingest_state(self, state: RobotState) -> None:
+        self._last_ingest_ms = int(time.time() * 1000)
         self._state = state
         self._emit(state)
 
     @property
     def armed(self) -> bool:
         return self._armed
+
+    @property
+    def last_ingest_ms(self) -> int:
+        return self._last_ingest_ms

@@ -3,6 +3,7 @@ import { api } from "@/services/api";
 import { useRobotStore } from "@/stores/robotStore";
 import { useCoordinationStore } from "@/stores/coordinationStore";
 import RobotCard from "./RobotCard";
+import TelemetryHistoryPanel from "./TelemetryHistoryPanel";
 import type { RegisteredRobot } from "@/types/robot";
 
 // Robot cards render dynamically from GET /api/robots merged with live
@@ -30,18 +31,38 @@ export default function RobotsPanel() {
     };
   }, []);
 
+  const connectedCount = registry.filter((r) => r.connected).length;
+
   return (
     <div className="panel robots-panel">
-      <div className="panel-title">Robots</div>
-      {registry.length === 0 && <div className="empty-state">No robots registered</div>}
-      {registry.map((robot) => (
-        <RobotCard
-          key={robot.robotId}
-          robot={{ ...robot, state: liveStates[robot.robotId] ?? robot.state }}
-          isLeader={coordination.leader_id === robot.robotId}
-          isFollower={coordination.follower_id === robot.robotId}
-        />
-      ))}
+      <div className="panel-title-row">
+        <div className="panel-title" style={{ margin: 0 }}>Robots</div>
+        <span style={{
+          fontSize: 10, fontWeight: 700, color: connectedCount > 0 ? "var(--ok)" : "var(--text-2)",
+          background: connectedCount > 0 ? "var(--ok-dim)" : "var(--unknown-dim)",
+          border: `1px solid ${connectedCount > 0 ? "rgba(60,232,128,0.2)" : "transparent"}`,
+          padding: "2px 7px", borderRadius: 4, letterSpacing: "0.04em",
+        }}>
+          {connectedCount}/{registry.length} online
+        </span>
+      </div>
+
+      <div className="robots-scroll-container">
+        {registry.length === 0 && (
+          <div className="empty-state" style={{ fontSize: 11 }}>No robots registered</div>
+        )}
+        {registry.map((robot) => (
+          <RobotCard
+            key={robot.robotId}
+            robot={{ ...robot, state: liveStates[robot.robotId] ?? robot.state }}
+            isLeader={coordination.leader_id === robot.robotId}
+            isFollower={coordination.follower_id === robot.robotId}
+          />
+        ))}
+
+        {/* Sparkline history below the cards */}
+        <TelemetryHistoryPanel />
+      </div>
     </div>
   );
 }
