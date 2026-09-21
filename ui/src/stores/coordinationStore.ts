@@ -11,6 +11,11 @@ const EMPTY: CoordinationState = {
   tracking_error_m: null,
   relative_velocity_mps: null,
   telemetry_latency_ms: null,
+  predicted_separation_m: null,
+  predicted_tracking_error_m: null,
+  separation_trend: null,
+  mission_health_score: null,
+  mission_health_components: null,
   state: "IDLE",
   updated_at_ms: 0,
 };

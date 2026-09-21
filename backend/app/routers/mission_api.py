@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.mission_manager import InvalidTransitionError, MissionStateEnum
-from app.models import EventSeverity, MissionEvent, RobotCommand
+from app.models import CoordinationMode, EventSeverity, MissionEvent, RobotCommand
 from app.state import GatewayState
 
 from .deps import get_gateway
@@ -26,11 +26,17 @@ class StartMissionRequest(BaseModel):
     follower_id: str
     recording: bool = True
     experiment_name: str | None = None
+    coordination_mode: CoordinationMode | None = None
 
 
 class SetRolesRequest(BaseModel):
     leader_id: str
     follower_id: str
+    mode: CoordinationMode | None = None
+
+
+class SetModeRequest(BaseModel):
+    mode: CoordinationMode
 
 
 class EmergencyStopRequest(BaseModel):
@@ -63,7 +69,7 @@ async def start_mission(body: StartMissionRequest, gw: GatewayState = Depends(ge
         )
 
     robot_types = {rid: gw.registry.robot_type(rid) for rid in (body.leader_id, body.follower_id)}
-    gw.coordination_manager.set_roles(body.leader_id, body.follower_id, robot_types)
+    gw.coordination_manager.set_roles(body.leader_id, body.follower_id, robot_types, mode=body.coordination_mode)
 
     try:
         if gw.mission_manager.state.state in (
@@ -192,14 +198,30 @@ async def set_roles(body: SetRolesRequest, gw: GatewayState = Depends(get_gatewa
 
     current_tracking_error = gw.telemetry_store.coordination_state.tracking_error_m
     robot_types = {rid: gw.registry.robot_type(rid) for rid in (body.leader_id, body.follower_id)}
-    gw.coordination_manager.set_roles(body.leader_id, body.follower_id, robot_types, current_tracking_error)
+    gw.coordination_manager.set_roles(
+        body.leader_id, body.follower_id, robot_types, current_tracking_error, mode=body.mode
+    )
 
     await gw.emit_event(
         MissionEvent(
             type="ROLE_SWITCH",
             severity=EventSeverity.INFO,
             robot_ids=[body.leader_id, body.follower_id],
-            message=f"Roles switched: leader={body.leader_id}, follower={body.follower_id}",
+            message=f"Roles switched: leader={body.leader_id}, follower={body.follower_id}, mode={gw.coordination_manager.mode.value}",
         )
     )
     return {"leaderId": body.leader_id, "followerId": body.follower_id, "mode": gw.coordination_manager.mode.value}
+
+
+@router.post("/mode")
+async def set_coordination_mode(body: SetModeRequest, gw: GatewayState = Depends(get_gateway)):
+    """Dynamically change the coordination mode (e.g. ATTITUDE_FOLLOW vs TURTLE_FOLLOWS_DRONE)."""
+    gw.coordination_manager.set_mode(body.mode)
+    await gw.emit_event(
+        MissionEvent(
+            type="COORDINATION_MODE_CHANGED",
+            severity=EventSeverity.INFO,
+            message=f"Coordination mode changed to {body.mode.value}",
+        )
+    )
+    return {"mode": gw.coordination_manager.mode.value}

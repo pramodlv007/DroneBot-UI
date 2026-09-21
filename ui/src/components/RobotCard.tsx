@@ -1,5 +1,8 @@
+import { useState } from "react";
 import type { RegisteredRobot } from "@/types/robot";
 import { fmtNum, healthDotClass, robotLabel } from "@/utils/format";
+import { useAnomalyStore } from "@/stores/anomalyStore";
+import { api } from "@/services/api";
 import AttitudeIndicator from "./AttitudeIndicator";
 import DeadReckoningControl from "./DeadReckoningControl";
 
@@ -8,6 +11,12 @@ interface Props {
   isLeader: boolean;
   isFollower: boolean;
 }
+
+// Mirrors the anomaly types AnomalyDetector.active_anomalies() can report.
+const ANOMALY_LABELS: Record<string, { label: string; hint: string }> = {
+  STUCK: { label: "⚠ STUCK", hint: "Commanded to move but has barely displaced — possible obstacle, wheel slip, or stall" },
+  HEADING_OSCILLATION: { label: "⚠ HEADING UNSTABLE", hint: "Heading keeps reversing direction — possible control instability or noisy heading estimate" },
+};
 
 /** GPS fix quality bar: 0-6 segments */
 function GpsFixBar({ fix }: { fix: number }) {
@@ -71,6 +80,25 @@ export default function RobotCard({ robot, isLeader, isFollower }: Props) {
   const health = s?.health ?? "UNKNOWN";
   const healthClass = robot.connected ? `health-${health}` : "disconnected";
   const latency = s ? (s.received_timestamp_ms - s.source_timestamp_ms) : null;
+  const activeAnomalies = useAnomalyStore((store) => store.active[robot.robotId] ?? []);
+  const [connBusy, setConnBusy] = useState(false);
+  const [connError, setConnError] = useState<string | null>(null);
+
+  async function toggleConnection() {
+    setConnBusy(true);
+    setConnError(null);
+    try {
+      if (robot.connected || robot.awaitingBridge) {
+        await api.disconnectRobot(robot.robotId);
+      } else {
+        await api.connectRobot(robot.robotId);
+      }
+    } catch (e: any) {
+      setConnError(String(e?.message ?? e).slice(0, 120));
+    } finally {
+      setConnBusy(false);
+    }
+  }
 
   return (
     <div className={`robot-card ${healthClass}`}>
@@ -89,23 +117,62 @@ export default function RobotCard({ robot, isLeader, isFollower }: Props) {
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
           <span className="status-pill" style={{ fontSize: 9.5, padding: "3px 8px" }}>
-            <span className={`dot ${robot.connected ? healthDotClass(health) : "unknown"}`} />
-            {robot.connected ? health : "OFFLINE"}
+            <span className={`dot ${robot.connected ? healthDotClass(health) : robot.awaitingBridge ? "warn" : "unknown"}`} />
+            {robot.connected ? health : robot.awaitingBridge ? "WAITING" : "OFFLINE"}
           </span>
           {robot.deadReckoning.active && (
             <span className="badge WARNING" style={{ fontSize: 8.5 }} title="Position is an estimate — no GPS fix, dead reckoning active">
               ⚠ DEAD RECKONING
             </span>
           )}
+          {activeAnomalies.map((kind) => (
+            <span
+              key={kind}
+              className="badge WARNING anomaly-badge-pulse"
+              style={{ fontSize: 8.5 }}
+              title={ANOMALY_LABELS[kind]?.hint ?? kind}
+            >
+              {ANOMALY_LABELS[kind]?.label ?? `⚠ ${kind}`}
+            </span>
+          ))}
           {role && (
             <span className={`badge NORMAL`} style={{ fontSize: 9 }}>{role}</span>
           )}
         </div>
       </div>
 
+      {/* Connect/Disconnect — the only place in Mission Control that can
+          recover a robot once it drops (mode switch, staleness watchdog,
+          manual disconnect elsewhere) without reloading back to the
+          initial connection screen. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <button
+          className={robot.connected || robot.awaitingBridge ? "danger" : "primary"}
+          disabled={connBusy}
+          onClick={toggleConnection}
+          style={{ flex: 1, fontSize: 11, padding: "6px" }}
+        >
+          {connBusy ? "…" : robot.connected ? "DISCONNECT" : robot.awaitingBridge ? "CANCEL" : "CONNECT"}
+        </button>
+      </div>
+      {connError && (
+        <div style={{
+          color: "var(--crit)", fontSize: 10, background: "var(--crit-dim)",
+          border: "1px solid rgba(255,69,96,0.25)", borderRadius: 5,
+          padding: "4px 8px", marginBottom: 8,
+        }}>
+          ⚠ {connError}
+        </div>
+      )}
+
       {/* Indoor/GPS-denied tracking — only shown for adapters that support it (UAVs) */}
       {isUav && robot.deadReckoning.supported && (
-        <DeadReckoningControl robotId={robot.robotId} info={robot.deadReckoning} connected={robot.connected} />
+        <DeadReckoningControl
+          robotId={robot.robotId}
+          info={robot.deadReckoning}
+          connected={robot.connected}
+          isMock={robot.protocol === "Mock"}
+        />
       )}
 
       {/* Mode row */}
@@ -120,7 +187,11 @@ export default function RobotCard({ robot, isLeader, isFollower }: Props) {
 
       {!s ? (
         <div style={{ color: "var(--text-2)", fontSize: 11, padding: "8px 0" }}>
-          {robot.connected ? "Waiting for telemetry…" : "Not connected"}
+          {robot.connected
+            ? "Waiting for telemetry…"
+            : robot.awaitingBridge
+            ? "Gateway armed — waiting for the TurtleBot bridge to connect and send /odom. Start the bridge on the robot (and its bringup, so /odom is publishing)."
+            : "Not connected"}
         </div>
       ) : (
         <>

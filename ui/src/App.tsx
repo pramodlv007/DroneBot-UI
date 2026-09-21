@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { connectGatewaySocket } from "@/services/socket";
 import HealthPanel from "@/components/HealthPanel";
 import MissionControlPage from "@/pages/MissionControlPage";
 import ExperimentsPage from "@/pages/ExperimentsPage";
 import ReplayPage from "@/pages/ReplayPage";
+import NotificationToast from "@/components/NotificationToast";
+import AiMonitorPopup from "@/components/AiMonitorPopup";
 import { api } from "@/services/api";
 
 // Drone SVG icon (inline, no dependency)
@@ -89,14 +91,63 @@ function SysClock() {
   return <span className="sys-clock">{time}</span>;
 }
 
+/** Keyboard shortcut hints shown in top bar */
+function ShortcutHints() {
+  return (
+    <div className="shortcut-hints" title="Keyboard shortcuts: Space=E-Stop, P=Pause, F=Fullscreen">
+      <span className="shortcut-badge">⎵ E-STOP</span>
+      <span className="shortcut-badge">P PAUSE</span>
+      <span className="shortcut-badge">F FULL</span>
+    </div>
+  );
+}
+
 export default function App() {
   useEffect(() => {
     const disconnect = connectGatewaySocket();
     return disconnect;
   }, []);
 
+  // ── Keyboard shortcuts (only when no input is focused) ──
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    switch (e.key) {
+      case " ": // Space → Emergency Stop
+        e.preventDefault();
+        api.emergencyStop().catch(() => {});
+        break;
+      case "p":
+      case "P": // P → Pause/Resume
+        api.togglePause().catch(() => {});
+        break;
+      case "f":
+      case "F": // F → Fullscreen map
+        {
+          const mapEl = document.querySelector(".map-panel");
+          if (mapEl) {
+            if (document.fullscreenElement) {
+              document.exitFullscreen().catch(() => {});
+            } else {
+              mapEl.requestFullscreen().catch(() => {});
+            }
+          }
+        }
+        break;
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
   return (
     <div className="app-shell">
+      {/* Floating notification toasts — driven by backend events */}
+      <NotificationToast />
+
       <div className="top-bar">
         {/* Brand */}
         <div className="brand">
@@ -124,8 +175,9 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Right: health + mode + clock */}
+        {/* Right: shortcuts + health + mode + clock */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ShortcutHints />
           <SysClock />
           <ModeBadge />
           <HealthPanel />
@@ -137,6 +189,11 @@ export default function App() {
         <Route path="/experiments" element={<ExperimentsPage />} />
         <Route path="/replay" element={<ReplayPage />} />
       </Routes>
+
+      {/* Floating AI Monitor — reachable from any tab/page, not just the
+          dedicated "AI Monitor" tab inside Mission Control. */}
+      <AiMonitorPopup />
     </div>
   );
 }
+

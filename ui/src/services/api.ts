@@ -44,6 +44,7 @@ export const api = {
     mission_id?: string;
     recording?: boolean;
     experiment_name?: string;
+    coordination_mode?: string;
   }) => request<MissionState>("/api/mission/start", { method: "POST", body: JSON.stringify(body) }),
   pauseMission: () => request<MissionState>("/api/mission/pause", { method: "POST" }),
   resumeMission: () => request<MissionState>("/api/mission/resume", { method: "POST" }),
@@ -51,8 +52,18 @@ export const api = {
   emergencyStop: (source = "operator") =>
     request("/api/mission/emergency_stop", { method: "POST", body: JSON.stringify({ source }) }),
   clearEmergency: () => request<MissionState>("/api/mission/emergency_clear", { method: "POST" }),
-  setRoles: (leader_id: string, follower_id: string) =>
-    request("/api/mission/roles", { method: "POST", body: JSON.stringify({ leader_id, follower_id }) }),
+  togglePause: async () => {
+    const mission = await request<MissionState>("/api/mission");
+    if (mission.state === "RUNNING") {
+      return request<MissionState>("/api/mission/pause", { method: "POST" });
+    } else if (mission.state === "PAUSED") {
+      return request<MissionState>("/api/mission/resume", { method: "POST" });
+    }
+  },
+  setRoles: (leader_id: string, follower_id: string, mode?: string) =>
+    request("/api/mission/roles", { method: "POST", body: JSON.stringify({ leader_id, follower_id, mode }) }),
+  setCoordinationMode: (mode: string) =>
+    request<{ mode: string }>("/api/mission/mode", { method: "POST", body: JSON.stringify({ mode }) }),
 
   listExperiments: () => request<ExperimentSummary[]>("/api/experiments"),
   getExperiment: (id: string) => request<ExperimentDetail>(`/api/experiments/${id}`),

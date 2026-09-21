@@ -257,6 +257,30 @@ body {
 }
 
 /* ============================================================
+   Keyboard Shortcut Hints (top bar)
+   ============================================================ */
+.shortcut-hints {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shortcut-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+
+/* ============================================================
    Status Pill (Health)
    ============================================================ */
 .status-pill {
@@ -323,6 +347,60 @@ body {
 @keyframes dot-crit {
   0%, 100% { box-shadow: 0 0 6px var(--crit-glow); }
   50% { box-shadow: 0 0 16px var(--crit-glow), 0 0 4px var(--crit); }
+}
+
+/* ============================================================
+   Map SVG pulse animations — referenced by MissionMap.tsx for the
+   separation corridor (degraded/lost), predictive "ghost" markers, and
+   the hover ring around a robot marker. Opacity/box-shadow only (no
+   scale-transform on the corridor/ghost groups, since those wrap
+   multiple children with their own positioning); the hover ring uses
+   fill-box transform-origin so it scales from its own center, not the
+   SVG viewport's.
+   ============================================================ */
+@keyframes corridor-pulse-anim {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+.corridor-pulse {
+  animation: corridor-pulse-anim 1.1s ease-in-out infinite;
+}
+
+@keyframes ghost-pulse-anim {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.95; }
+}
+.ghost-pulse {
+  animation: ghost-pulse-anim 1.6s ease-in-out infinite;
+}
+
+@keyframes hover-ring-pulse-anim {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+.hover-ring-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hover-ring-pulse-anim 0.9s ease-out infinite;
+}
+
+/* HTML badge (RobotCard) — box-shadow works here, it's a regular DOM element */
+@keyframes anomaly-badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(255,180,58,0); }
+  50% { box-shadow: 0 0 8px rgba(255,180,58,0.55); }
+}
+.anomaly-badge-pulse {
+  animation: anomaly-badge-pulse 1.4s ease-in-out infinite;
+}
+
+/* SVG marker (MissionMap) — box-shadow is a no-op inside SVG, so this uses
+   opacity instead, same as .ghost-pulse above. */
+@keyframes anomaly-marker-pulse-anim {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.anomaly-marker-pulse {
+  animation: anomaly-marker-pulse-anim 0.9s ease-in-out infinite;
 }
 
 /* ============================================================
@@ -1553,3 +1631,315 @@ table.data-table tr:hover td {
 
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .health-top { display: flex; align-items: center; gap: 6px; }
+
+/* ============================================================
+   Mission sub-nav tab bar
+   ============================================================ */
+
+.mission-tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 6px 12px 0;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.mission-tab-btn {
+  position: relative;
+  padding: 7px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color 0.18s, background 0.18s;
+}
+
+.mission-tab-btn:hover {
+  color: var(--text-1);
+  background: var(--bg-3);
+}
+
+.mission-tab-btn--active {
+  color: var(--accent-bright);
+  background: var(--bg-2);
+}
+
+.mission-tab-btn--active::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  box-shadow: 0 0 8px var(--accent);
+}
+
+/* ============================================================
+   AI Monitor Tab  (.aim-*)
+   ============================================================ */
+
+@keyframes aim-slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.aim-root {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 160px);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+
+/* Header */
+.aim-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px 12px;
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+
+.aim-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.aim-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-0);
+  letter-spacing: 0.02em;
+}
+
+.aim-subtitle {
+  font-size: 10px;
+  color: var(--text-2);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--mono);
+}
+
+.aim-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aim-spinner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  font-family: var(--mono);
+}
+
+/* Status badge */
+.aim-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+/* Error bar */
+.aim-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: var(--crit-dim);
+  border-bottom: 1px solid var(--crit);
+  font-size: 12px;
+  color: var(--crit);
+  flex-shrink: 0;
+}
+
+.aim-retry-btn {
+  padding: 4px 12px;
+  background: var(--crit-dim);
+  border: 1px solid var(--crit);
+  border-radius: var(--radius-sm);
+  color: var(--crit);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.aim-retry-btn:hover {
+  background: rgba(255, 69, 96, 0.22);
+}
+
+/* Empty state */
+.aim-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  font-size: 14px;
+  gap: 6px;
+  text-align: center;
+}
+
+.aim-empty-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+/* Feed container */
+.aim-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* Feed card */
+.aim-feed-card {
+  background: var(--bg-2);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  animation: aim-slide-in 0.25s ease-out;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.aim-feed-card--latest {
+  background: var(--bg-3);
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+
+.aim-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.aim-card-headline {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-0);
+  line-height: 1.3;
+}
+
+.aim-card-time {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+/* Alert strip */
+.aim-alert-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  background: rgba(255, 69, 96, 0.08);
+  border: 1px solid rgba(255, 69, 96, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.aim-alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--warn);
+  line-height: 1.4;
+}
+
+.aim-alert-icon {
+  flex-shrink: 0;
+  font-size: 11px;
+  margin-top: 1px;
+  color: var(--warn);
+}
+
+/* Updates list */
+.aim-updates-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aim-update-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-1);
+  line-height: 1.45;
+}
+
+.aim-update-dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: 5px;
+  box-shadow: 0 0 4px var(--accent);
+}
+
+/* Footer */
+.aim-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--text-2);
+  flex-shrink: 0;
+  background: var(--bg-2);
+}
+
+.aim-clear-btn {
+  padding: 3px 10px;
+  background: var(--bg-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.aim-clear-btn:hover {
+  color: var(--text-1);
+  border-color: var(--accent);
+}
+

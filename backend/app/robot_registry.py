@@ -69,6 +69,11 @@ class RobotRegistry:
         robot = self._robots.get(robot_id)
         if robot:
             robot.connected = False
+            # Match mark_stale(): a REST-polled client (RobotCard) must see
+            # `state: null` once offline, not the last live telemetry frozen
+            # forever — otherwise the UI keeps rendering stale numbers next
+            # to an "OFFLINE" badge.
+            robot.last_state = None
 
     def mark_stale(self, robot_id: str) -> Optional[RobotAdapter]:
         """Called by the staleness watchdog when a robot stops sending

@@ -133,6 +133,7 @@ class RobotRegistration(BaseModel):
 class CoordinationMode(str, Enum):
     DRONE_FOLLOWS_TURTLE = "DRONE_FOLLOWS_TURTLE"
     TURTLE_FOLLOWS_DRONE = "TURTLE_FOLLOWS_DRONE"
+    ATTITUDE_FOLLOW = "ATTITUDE_FOLLOW"
     MANUAL = "MANUAL"
     PAUSED = "PAUSED"
     IDLE = "IDLE"
@@ -157,6 +158,21 @@ class CoordinationState(BaseModel):
     tracking_error_m: Optional[float] = None
     relative_velocity_mps: Optional[float] = None
     telemetry_latency_ms: Optional[float] = None
+
+    # Predictive separation alerting — velocity-extrapolated positions ~3s ahead
+    predicted_separation_m: Optional[float] = None
+    predicted_tracking_error_m: Optional[float] = None
+    separation_trend: Optional[str] = None  # "CONVERGING" | "STABLE" | "DIVERGING"
+
+    # Mission health score — weighted composite 0–100
+    mission_health_score: Optional[float] = None
+    mission_health_components: dict[str, Any] = Field(default_factory=dict)
+
+    # Attitude follower telemetry
+    drone_pitch_deg: Optional[float] = None
+    drone_roll_deg: Optional[float] = None
+    drone_yaw_deg: Optional[float] = None
+    motion_intent: Optional[str] = None
 
     state: CoordinationTrackingState = CoordinationTrackingState.IDLE
     updated_at_ms: int = Field(default_factory=now_ms)

@@ -6,6 +6,7 @@ interface Props {
   robotId: string;
   info: DeadReckoningInfo;
   connected: boolean;
+  isMock: boolean;
 }
 
 /**
@@ -13,10 +14,13 @@ interface Props {
  * Lets an operator opt in to dead-reckoning position when GPS has no fix indoors,
  * and re-zero it against a known point.
  */
-export default function DeadReckoningControl({ robotId, info, connected }: Props) {
+export default function DeadReckoningControl({ robotId, info, connected, isMock }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  // Local only — the registry doesn't expose current fault-injection state,
+  // and this button only exists in SIMULATION mode anyway.
+  const [gpsLossInjected, setGpsLossInjected] = useState(false);
 
   async function toggle() {
     setBusy(true);
@@ -37,6 +41,23 @@ export default function DeadReckoningControl({ robotId, info, connected }: Props
       await api.resetDeadReckoning(robotId);
     } catch (e: any) {
       setError("Reset failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleGpsLoss() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (gpsLossInjected) {
+        await api.clearFault(robotId);
+      } else {
+        await api.injectFault(robotId, { gps_loss: true });
+      }
+      setGpsLossInjected(!gpsLossInjected);
+    } catch (e: any) {
+      setError("Fault injection failed");
     } finally {
       setBusy(false);
     }
@@ -93,6 +114,17 @@ export default function DeadReckoningControl({ robotId, info, connected }: Props
               title="Re-zero the drift-accumulating estimate at the current position"
             >
               ⟲ RESET ESTIMATE ORIGIN
+            </button>
+          )}
+          {isMock && (
+            <button
+              type="button"
+              className="dr-reset-btn"
+              onClick={toggleGpsLoss}
+              disabled={busy || !connected}
+              title="Simulation-only: force the mock drone's GPS fix to drop so you can see dead reckoning engage without waiting for the scripted scenario cycle"
+            >
+              {gpsLossInjected ? "✕ CLEAR SIMULATED GPS LOSS" : "🧪 SIMULATE GPS LOSS (TEST)"}
             </button>
           )}
           {error && <div className="dr-error">{error}</div>}

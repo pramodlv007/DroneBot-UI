@@ -32,4 +32,20 @@ supervisor:
   # Model ids are read from environment variables (OPENAI_MODEL /
   # ANTHROPIC_MODEL) — never hard-code a specific model id here.
 
+# Always-on anomaly detection (backend/app/anomaly_detector.py). Runs every
+# control-loop tick regardless of which UI panel is open. All fields are
+# optional — omit any you don't want to override.
+anomaly:
+  enabled: true
+  stuck_window_s: 4.0
+  stuck_command_threshold: 0.03
+  stuck_distance_m: 0.05
+  battery_window_s: 30.0
+  battery_drop_pct: 5.0
+  position_jump_max_speed_mps: 8.0
+  heading_oscillation_window_s: 2.0
+  heading_oscillation_min_flips: 4
+  heading_oscillation_min_rate_radps: 0.3
+  cooldown_s: 20.0
+
 mode: "PHYSICAL"   # SIMULATION | TEST | PHYSICAL

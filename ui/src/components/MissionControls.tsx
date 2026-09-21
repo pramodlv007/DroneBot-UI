@@ -46,6 +46,7 @@ export default function MissionControls() {
   const coordination = useCoordinationStore((s) => s.coordination);
   const [leaderId, setLeaderId] = useState<string>(coordination.leader_id ?? "");
   const [followerId, setFollowerId] = useState<string>(coordination.follower_id ?? "");
+  const [coordMode, setCoordMode] = useState<string>("ATTITUDE_FOLLOW");
   const [recording, setRecording] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +72,7 @@ export default function MissionControls() {
 
   async function switchRoles() {
     if (!leaderId || !followerId) return;
-    await run(() => api.setRoles(followerId, leaderId));
+    await run(() => api.setRoles(followerId, leaderId, coordination.mode));
     const tmp = leaderId;
     setLeaderId(followerId);
     setFollowerId(tmp);
@@ -117,6 +118,14 @@ export default function MissionControls() {
               </select>
             </div>
 
+            <div className="role-selector-group">
+              <span className="role-selector-label">Mode</span>
+              <select value={coordMode} onChange={(e) => setCoordMode(e.target.value)} disabled={busy} id="select-coord-mode">
+                <option value="ATTITUDE_FOLLOW">Attitude Follow (Pitch/Roll/Yaw)</option>
+                <option value="TURTLE_FOLLOWS_DRONE">Position Follow (Go-To-Point)</option>
+              </select>
+            </div>
+
             <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-1)", cursor: "pointer", userSelect: "none" }}>
               <input type="checkbox" checked={recording} onChange={(e) => setRecording(e.target.checked)} />
               Record
@@ -132,7 +141,7 @@ export default function MissionControls() {
           <button
             className="primary"
             disabled={!canStart}
-            onClick={() => run(() => api.startMission({ leader_id: leaderId, follower_id: followerId, recording }))}
+            onClick={() => run(() => api.startMission({ leader_id: leaderId, follower_id: followerId, recording, coordination_mode: coordMode }))}
             id="btn-start-mission"
           >
             ▶ START
@@ -156,6 +165,16 @@ export default function MissionControls() {
         {canControl && (
           <button disabled={busy} onClick={switchRoles} title="Swap leader and follower roles" id="btn-switch-roles">
             ⇄ ROLES
+          </button>
+        )}
+        {canControl && (
+          <button
+            disabled={busy}
+            onClick={() => run(() => api.setCoordinationMode(coordination.mode === "ATTITUDE_FOLLOW" ? "TURTLE_FOLLOWS_DRONE" : "ATTITUDE_FOLLOW"))}
+            title="Toggle between Attitude Follow (Roll/Pitch/Yaw) and Position Follow (Go-To-Point)"
+            id="btn-toggle-mode"
+          >
+            🔀 {coordination.mode === "ATTITUDE_FOLLOW" ? "MODE: ATTITUDE" : "MODE: POSITION"}
           </button>
         )}
 

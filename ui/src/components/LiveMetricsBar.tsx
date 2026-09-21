@@ -7,6 +7,7 @@
 import { useRobotStore } from "@/stores/robotStore";
 import { useCoordinationStore } from "@/stores/coordinationStore";
 import { fmtNum } from "@/utils/format";
+import MissionHealthGauge from "./MissionHealthGauge";
 
 function Metric({
   label, value, unit = "", color, title,
@@ -44,7 +45,11 @@ export default function LiveMetricsBar() {
   const robots = useRobotStore((s) => s.robots);
   const coord = useCoordinationStore((s) => s.coordination);
 
-  const robotList = Object.values(robots);
+  // This bar's whole purpose is "live data from every connected robot" (see
+  // header comment) — a disconnected robot's last-known frame must not
+  // render here looking exactly like a live one, or the strip lies about
+  // what's actually happening right now.
+  const robotList = Object.values(robots).filter((r) => r.connected);
   const drone = robotList.find((r) => r.robot_type === "UAV");
   const bot = robotList.find((r) => r.robot_type === "UGV");
 
@@ -168,6 +173,8 @@ export default function LiveMetricsBar() {
       {(drone || bot) && (
         <>
           <div className="lmb-section-label" style={{ color: "var(--text-2)" }}>MISSION</div>
+          <MissionHealthGauge />
+          <Divider />
           <Metric
             label="SEP"
             value={fmtNum(coord.separation_m, 1)}
@@ -190,6 +197,16 @@ export default function LiveMetricsBar() {
             }
             title="Tracking error"
           />
+          {/* Prediction indicator — only shown when backend predicts a problem */}
+          {coord.predicted_tracking_error_m != null && coord.predicted_tracking_error_m > 1.0 && (
+            <Metric
+              label="PRED"
+              value={fmtNum(coord.predicted_separation_m, 1)}
+              unit=" m"
+              color={coord.predicted_tracking_error_m >= 2.0 ? "var(--warn)" : "var(--text-1)"}
+              title={`Predicted separation in ~3s (trend: ${coord.separation_trend ?? "—"})`}
+            />
+          )}
           <Metric
             label="STATE"
             value={coord.state}

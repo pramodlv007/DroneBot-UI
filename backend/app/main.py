@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.models import (
+    CoordinationTrackingState,
     EventSeverity,
     HealthState,
     MissionEvent,
@@ -35,7 +36,7 @@ from app.models import (
     RobotState,
     now_ms,
 )
-from app.routers import experiment_api, health_api, mission_api, robots_api
+from app.routers import experiment_api, health_api, mission_api, robots_api, ai_monitor_api
 from app.state import GatewayState
 from app.supervisor.validator import validate_recommendation
 
@@ -116,8 +117,9 @@ async def _control_tick(gw: GatewayState) -> None:
                     await stale_adapter.disconnect()
                 except Exception:
                     pass
-            # Remove stale state so it stops broadcasting
-            store.robot_states.pop(robot.robot_id, None)
+            # Correct any already-open UI client's cached copy immediately
+            # (map/metrics bar), not just future REST polls.
+            await gw.clear_robot_telemetry(robot.robot_id)
             await gw.emit_event(
                 MissionEvent(
                     type="TELEMETRY_STALE",
@@ -132,9 +134,62 @@ async def _control_tick(gw: GatewayState) -> None:
     follower_state = store.robot_states.get(coord_mgr.follower_id) if coord_mgr.follower_id else None
 
     coordination_state, command = coord_mgr.compute(leader_state, follower_state)
+
+    # ── Mission health score + predictive alerts ──────────────────────
+    # Compute mission health score from live data (every tick)
+    warning_count = sum(1 for e in store.events if e.severity == EventSeverity.WARNING)
+    critical_count = sum(1 for e in store.events if e.severity == EventSeverity.CRITICAL)
+    health_score, health_components = coord_mgr.compute_mission_health_score(
+        coordination_state, store.robot_states, warning_count, critical_count
+    )
+    coordination_state.mission_health_score = health_score
+    coordination_state.mission_health_components = health_components
+
+    # Emit predictive separation warning (rate-limited: max once per 10s)
+    if (
+        coordination_state.predicted_tracking_error_m is not None
+        and coordination_state.predicted_tracking_error_m >= coord_mgr.tracking_error_degraded_m
+        and coordination_state.state == CoordinationTrackingState.TRACKING  # only warn if currently OK
+    ):
+        # Check rate limit — avoid spamming
+        recent_pred_warnings = [
+            e for e in list(store.events)[-20:]
+            if e.type == "PREDICTED_SEPARATION_WARNING"
+        ]
+        if not recent_pred_warnings or (now_ms() - recent_pred_warnings[-1].timestamp_ms) > 10_000:
+            await gw.emit_event(
+                MissionEvent(
+                    type="PREDICTED_SEPARATION_WARNING",
+                    severity=EventSeverity.WARNING,
+                    message=(
+                        f"Predicted separation in ~3s: {coordination_state.predicted_separation_m:.1f} m "
+                        f"(tracking error {coordination_state.predicted_tracking_error_m:.1f} m) — "
+                        f"trend: {coordination_state.separation_trend}"
+                    ),
+                    value=coordination_state.predicted_separation_m,
+                    metadata={
+                        "predicted_tracking_error_m": coordination_state.predicted_tracking_error_m,
+                        "separation_trend": coordination_state.separation_trend,
+                        "current_separation_m": coordination_state.separation_m,
+                    },
+                )
+            )
+    # ─────────────────────────────────────────────────────────────────
+
     store.coordination_state = coordination_state
 
     mission_state = gw.mission_manager.state
+
+    # ── Anomaly detection ────────────────────────────────────────────────
+    # Always-on, independent of any UI tab being open (unlike the AI
+    # Monitor's rule engine, which only evaluates while polled).
+    anomalies = gw.anomaly_detector.evaluate(
+        now_ms_val, store.robot_states, command, mission_state.state == MissionStateEnum.RUNNING
+    )
+    for anomaly_event in anomalies:
+        await gw.emit_event(anomaly_event)
+    # ─────────────────────────────────────────────────────────────────────
+
     if command is not None and mission_state.state == MissionStateEnum.RUNNING:
         follower_robot = gw.registry.get(command.robot_id)
         result = gw.safety_manager.check_and_clamp(command, follower_state, mission_state.state)
@@ -157,6 +212,7 @@ async def _control_tick(gw: GatewayState) -> None:
     await gw.ws_manager.broadcast("coordination_state", coordination_state.model_dump(mode="json"))
     await gw.ws_manager.broadcast("mission_state", gw.mission_manager.state.model_dump(mode="json"))
     await gw.ws_manager.broadcast("system_health", store.system_health.model_dump(mode="json"))
+    await gw.ws_manager.broadcast("anomalies", gw.anomaly_detector.active_anomalies())
 
 
 async def _update_mission_from_tracking(gw: GatewayState, coordination_state) -> None:
@@ -252,6 +308,7 @@ app.include_router(robots_api.router)
 app.include_router(mission_api.router)
 app.include_router(experiment_api.router)
 app.include_router(health_api.router)
+app.include_router(ai_monitor_api.router)
 
 
 @app.websocket("/ws")
@@ -274,6 +331,7 @@ async def ui_websocket(ws: WebSocket) -> None:
                         "supervisor": gw.telemetry_store.latest_recommendation.model_dump(mode="json")
                         if gw.telemetry_store.latest_recommendation
                         else None,
+                        "anomalies": gw.anomaly_detector.active_anomalies(),
                     },
                 },
                 default=str,
@@ -331,9 +389,20 @@ async def ingest_websocket(ws: WebSocket, robot_id: str = "turtlebot_01") -> Non
         )
     )
 
+    # A read timeout on the ingest socket itself: if the ROS2 bridge node's
+    # process dies or the network drops without a clean TCP close, receive_json()
+    # would otherwise block forever and this robot would show "connected"
+    # indefinitely with no telemetry. Bound every read so a dead peer is
+    # detected within one stale-threshold window.
+    read_timeout_s = gw.settings.safety.telemetry_stale_s
     try:
         while True:
-            raw = await ws.receive_json()
+            try:
+                raw = await asyncio.wait_for(ws.receive_json(), timeout=read_timeout_s)
+            except asyncio.TimeoutError:
+                logger.warning("TurtleBot %s ingest socket silent for %.1fs — closing", robot_id, read_timeout_s)
+                await ws.close(code=4408, reason="No telemetry received within timeout")
+                break
             if raw.get("type") != "state":
                 continue
             state = RobotState.model_validate(raw["state"])
@@ -344,7 +413,7 @@ async def ingest_websocket(ws: WebSocket, robot_id: str = "turtlebot_01") -> Non
         if robot.adapter is not None and hasattr(robot.adapter, "detach_ws"):
             robot.adapter.detach_ws()
         gw.registry.mark_disconnected(robot_id)
-        gw.telemetry_store.robot_states.pop(robot_id, None)
+        await gw.clear_robot_telemetry(robot_id)
         await gw.emit_event(
             MissionEvent(
                 type="ROBOT_DISCONNECTED",

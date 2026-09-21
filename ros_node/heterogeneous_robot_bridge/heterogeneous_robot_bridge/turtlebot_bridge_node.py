@@ -97,6 +97,13 @@ class TurtleBotBridgeNode(Node):
         self.create_subscription(Odometry, self.get_parameter("odom_topic").value, self._on_odom, qos_profile_sensor_data)
         self.create_subscription(BatteryState, self.get_parameter("battery_topic").value, self._on_battery, qos_profile_sensor_data)
         self.create_timer(1.0 / 20.0, self._watchdog_tick)  # local safety watchdog, independent of the gateway
+        # Keep-alive so the gateway's silence timeout doesn't drop the socket
+        # while /odom is quiet (bringup not running, wrong topic/namespace);
+        # plus a loud, one-time explanation of *why* no telemetry is flowing.
+        self._started_at = time.time()
+        self._odom_logged = False
+        self._no_odom_warned = False
+        self.create_timer(1.0, self._heartbeat_tick)
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._ws = None
@@ -142,6 +149,17 @@ class TurtleBotBridgeNode(Node):
     def _on_battery(self, msg: BatteryState) -> None:
         if msg.percentage == msg.percentage:  # not NaN
             self._battery_pct = msg.percentage * 100.0 if msg.percentage <= 1.0 else msg.percentage
+
+    def _heartbeat_tick(self) -> None:
+        if self._ws is not None and self._loop is not None:
+            asyncio.run_coroutine_threadsafe(self._ws.send(json.dumps({"type": "heartbeat"})), self._loop)
+        if not self._odom_logged and not self._no_odom_warned and time.time() - self._started_at > 5.0:
+            self._no_odom_warned = True
+            self.get_logger().warn(
+                f"No messages on '{self.get_parameter('odom_topic').value}' after 5s — the gateway will show this "
+                "robot as connected but with no telemetry. Is the TurtleBot bringup running "
+                "(ros2 launch turtlebot3_bringup robot.launch.py)? Check: ros2 topic hz /odom"
+            )
 
     def _watchdog_tick(self) -> None:
         if time.time() - self._last_command_time > COMMAND_TIMEOUT_S and (self._linear_x or self._angular_z):

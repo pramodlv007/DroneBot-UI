@@ -97,6 +97,9 @@ export interface RegisteredRobot {
   protocol: string;
   displayName: string;
   connected: boolean;
+  // ROS2 robot armed via CONNECT, gateway waiting for its bridge node to
+  // dial in and send telemetry.
+  awaitingBridge: boolean;
   capabilities: string[];
   lastHeartbeatMs: number | null;
   state: RobotState | null;

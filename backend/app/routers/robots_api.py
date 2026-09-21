@@ -20,6 +20,12 @@ from .deps import get_gateway
 router = APIRouter(prefix="/api/robots", tags=["robots"])
 
 
+def _awaiting_bridge(robot) -> bool:
+    """True for an ingest-style robot (TurtleBot) that's been armed via
+    CONNECT but whose ROS2 bridge node hasn't attached/sent telemetry yet."""
+    return (not robot.connected) and isinstance(robot.adapter, TurtleBotAdapter) and robot.adapter.armed
+
+
 def _serialize(robot) -> dict:
     dr_supported = robot.adapter is not None and hasattr(robot.adapter, "set_dead_reckoning")
     return {
@@ -28,6 +34,7 @@ def _serialize(robot) -> dict:
         "protocol": robot.config.protocol,
         "displayName": robot.config.display_name,
         "connected": robot.connected,
+        "awaitingBridge": _awaiting_bridge(robot),
         "capabilities": robot.registration.capabilities if robot.registration else robot.config.capabilities,
         "lastHeartbeatMs": robot.last_heartbeat_ms,
         "state": robot.last_state.model_dump(mode="json") if robot.last_state else None,
@@ -118,6 +125,11 @@ async def connect_robot(robot_id: str, gw: GatewayState = Depends(get_gateway)):
         raise HTTPException(404, f"Unknown robot: {robot_id}")
     if robot.connected:
         return _serialize(robot)
+    # Already armed and waiting for the ROS2 bridge to dial in: re-clicking
+    # CONNECT must not tear down and rebuild the adapter (and its state
+    # listener) the bridge is about to attach to.
+    if _awaiting_bridge(robot):
+        return _serialize(robot)
 
     adapter = _build_adapter(gw, robot_id, robot)
 
@@ -191,6 +203,7 @@ async def disconnect_robot(robot_id: str, gw: GatewayState = Depends(get_gateway
     if robot.adapter:
         await robot.adapter.disconnect()
     gw.registry.mark_disconnected(robot_id)
+    await gw.clear_robot_telemetry(robot_id)
     await gw.emit_event(
         MissionEvent(type="ROBOT_DISCONNECTED", severity=EventSeverity.WARNING, robot_ids=[robot_id], message=f"{robot_id} disconnected")
     )

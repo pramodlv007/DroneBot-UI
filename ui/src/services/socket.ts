@@ -9,6 +9,7 @@ import { useCoordinationStore } from "@/stores/coordinationStore";
 import { useMissionStore } from "@/stores/missionStore";
 import { useEventStore } from "@/stores/eventStore";
 import { useConnectionStore } from "@/stores/connectionStore";
+import { useAnomalyStore } from "@/stores/anomalyStore";
 import type { RobotState } from "@/types/robot";
 import type { CoordinationState } from "@/types/coordination";
 import type { MissionEvent, MissionState, SupervisorRecommendation, SystemHealthState } from "@/types/mission";
@@ -25,6 +26,7 @@ interface Snapshot {
   systemHealth: SystemHealthState;
   events: MissionEvent[];
   supervisor: SupervisorRecommendation | null;
+  anomalies: Record<string, string[]>;
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -67,6 +69,7 @@ export function connectGatewaySocket(): () => void {
         useMissionStore.getState().setSystemHealth(snap.systemHealth);
         useEventStore.getState().setAll(snap.events);
         if (snap.supervisor) useMissionStore.getState().setSupervisor(snap.supervisor);
+        useAnomalyStore.getState().setAll(snap.anomalies ?? {});
         break;
       }
       case "robot_state":
@@ -86,6 +89,9 @@ export function connectGatewaySocket(): () => void {
         break;
       case "events":
         useEventStore.getState().add(envelope.data as MissionEvent);
+        break;
+      case "anomalies":
+        useAnomalyStore.getState().setAll(envelope.data as Record<string, string[]>);
         break;
       default:
         break;

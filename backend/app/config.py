@@ -14,7 +14,7 @@ from typing import Optional
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -73,18 +73,62 @@ class SupervisorConfig(BaseModel):
     interval_s: float = 5.0
 
 
+class AttitudeFollowConfig(BaseModel):
+    deadband_pitch_rad: float = 0.05  # ~2.8 deg
+    deadband_roll_rad: float = 0.05
+    deadband_yaw_rad: float = 0.05
+    gain_pitch_linear: float = 0.8    # (m/s) per rad of pitch
+    gain_yaw_angular: float = 1.5     # (rad/s) per rad of yaw error
+    gain_roll_angular: float = 0.8    # (rad/s) per rad of roll banking
+
+
 class CoordinationConfig(BaseModel):
     target_separation_m: float = 1.5
     default_leader: Optional[str] = None
     default_follower: Optional[str] = None
     tracking_error_degraded_m: float = 2.0
     tracking_error_lost_m: float = 4.0
+    attitude_follow: AttitudeFollowConfig = Field(default_factory=AttitudeFollowConfig)
 
 
 class ControlConfig(BaseModel):
     rate_hz: float = 10
     max_linear_speed_mps: float = 0.22
     max_angular_speed_radps: float = 1.0
+
+
+class AnomalyConfig(BaseModel):
+    """Thresholds for AnomalyDetector's always-on sliding-window checks
+    (backend/app/anomaly_detector.py) — runs every control-loop tick
+    regardless of whether any UI panel is open, unlike the AI Monitor's
+    rule engine which only evaluates while that tab is being polled."""
+
+    enabled: bool = True
+
+    # STUCK: robot has been continuously, non-trivially commanded for this
+    # long but has displaced less than stuck_distance_m.
+    stuck_window_s: float = 4.0
+    stuck_command_threshold: float = 0.03  # m/s or rad/s to count as "actively commanded"
+    stuck_distance_m: float = 0.05
+
+    # BATTERY_DRAIN: percentage drop within the window that's faster than
+    # any normal mission profile.
+    battery_window_s: float = 30.0
+    battery_drop_pct: float = 5.0
+
+    # POSITION_JUMP: implied speed between two consecutive telemetry samples
+    # that exceeds physical plausibility (sensor glitch / EKF reset / bad
+    # dead-reckoning integration), not a genuine maneuver.
+    position_jump_max_speed_mps: float = 8.0
+
+    # HEADING_OSCILLATION: yaw-rate direction reversals within the window
+    # that indicate an unstable controller or noisy heading estimate.
+    heading_oscillation_window_s: float = 2.0
+    heading_oscillation_min_flips: int = 4
+    heading_oscillation_min_rate_radps: float = 0.3
+
+    # Minimum time before the same anomaly type can re-fire for the same robot.
+    cooldown_s: float = 20.0
 
 
 class Settings(BaseModel):
@@ -95,6 +139,7 @@ class Settings(BaseModel):
     supervisor: SupervisorConfig
     coordination: CoordinationConfig
     control: ControlConfig
+    anomaly: AnomalyConfig
     deployment_mode: str = "SIMULATION"
 
     openai_api_key: Optional[str] = None
@@ -103,11 +148,25 @@ class Settings(BaseModel):
     anthropic_model: str = "claude-sonnet-5"
 
 
+def _resolve_config_path(env_var: str, default_relative: str) -> Path:
+    """Resolve a config-file path from an env var override or the built-in
+    default. A relative override (e.g. ROBOTS_CONFIG_PATH=./config/robots.yaml,
+    as shipped in .env.example) must resolve against REPO_ROOT, not the
+    process's working directory — the gateway is normally launched with its
+    CWD at backend/ (dev script, Dockerfile), so a CWD-relative path would
+    silently miss the file and load an empty config instead of erroring."""
+    raw = os.environ.get(env_var)
+    if not raw:
+        return REPO_ROOT / default_relative
+    path = Path(raw)
+    return path if path.is_absolute() else (REPO_ROOT / path).resolve()
+
+
 @lru_cache
 def get_settings() -> Settings:
-    robots_path = Path(os.environ.get("ROBOTS_CONFIG_PATH", REPO_ROOT / "config" / "robots.yaml"))
-    mission_path = Path(os.environ.get("MISSION_CONFIG_PATH", REPO_ROOT / "config" / "mission.yaml"))
-    system_path = Path(os.environ.get("SYSTEM_CONFIG_PATH", REPO_ROOT / "config" / "system.yaml"))
+    robots_path = _resolve_config_path("ROBOTS_CONFIG_PATH", "config/robots.yaml")
+    mission_path = _resolve_config_path("MISSION_CONFIG_PATH", "config/mission.yaml")
+    system_path = _resolve_config_path("SYSTEM_CONFIG_PATH", "config/system.yaml")
 
     robots_raw = _load_yaml(robots_path).get("robots", {})
     mission_raw = _load_yaml(mission_path)
@@ -121,6 +180,7 @@ def get_settings() -> Settings:
         supervisor=SupervisorConfig(**system_raw.get("supervisor", {})),
         coordination=CoordinationConfig(**mission_raw.get("coordination", {})),
         control=ControlConfig(**mission_raw.get("control", {})),
+        anomaly=AnomalyConfig(**system_raw.get("anomaly", {})),
         deployment_mode=os.environ.get("DEPLOYMENT_MODE", system_raw.get("mode", "SIMULATION")),
         openai_api_key=os.environ.get("OPENAI_API_KEY") or None,
         openai_model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
