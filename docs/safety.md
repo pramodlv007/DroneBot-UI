@@ -35,19 +35,27 @@ Every candidate command is checked, in order, against:
    else (including `PAUSED`, `DEGRADED`, `EMERGENCY`, `STOPPED`) blocks
    the command.
 3. **Robot connected?** → `ROBOT_NOT_CONNECTED` if not.
-4. **Telemetry fresh?** (`telemetry_stale_s`, default 2.0s) →
-   `TELEMETRY_STALE` if the most recent `RobotState` is older than that.
-5. **Command rate limit** (`max_command_rate_hz`, default 20) →
-   `COMMAND_RATE_LIMITED` if called again too soon for the same robot.
-6. **Velocity clamp**: `linear_x`, `linear_y` clamped to
-   `±max_linear_speed_mps`; `angular_z` clamped to
-   `±max_angular_speed_radps`. This is the one check that never *rejects*
-   — an over-limit command is clamped to the limit rather than dropped,
-   because dropping a coordination controller's output entirely (rather
-   than saturating it) is worse for stability, not safer.
+4. **Identity and finite values?** Commands for a different robot state are
+   rejected with `ROBOT_ID_MISMATCH`; NaN/infinite velocity components are
+   rejected with `NON_FINITE_COMMAND`.
+5. **Telemetry fresh?** (`telemetry_stale_s`) → `TELEMETRY_STALE` when old.
+6. **Command rate limit** (`max_command_rate_hz`) → `COMMAND_RATE_LIMITED`.
+7. **Velocity clamp:** the horizontal vector magnitude is limited to
+   `max_linear_speed_mps`, preserving direction. `angular_z` is clamped to
+   `±max_angular_speed_radps`.
 
-All five thresholds are configuration (`config/system.yaml` `safety:` /
-`config/mission.yaml` `control:`), never hard-coded in `safety_manager.py`.
+The control loop dispatches normal commands only while the mission is
+`RUNNING`. Missing samples for assigned robots report `LOST`. Telemetry
+expiration disconnects stale robots even with an open ingest WebSocket;
+ROS2 receive timestamps are stamped by the gateway, not trusted from the
+remote payload.
+
+`max_tracking_error_m`, `max_latency_ms`, and `min_battery_percent` in
+`SafetyConfig` are not currently enforced by `check_and_clamp()`.
+`heartbeat_timeout_s` has a helper but is not checked there either. The
+control loop uses telemetry freshness, and coordination uses its separate
+`tracking_error_degraded_m` / `tracking_error_lost_m` thresholds. Do not
+interpret every YAML safety field as an active command interlock.
 
 ## Emergency Stop
 
@@ -75,8 +83,10 @@ or thresholds might no longer be appropriate.
 
 The UI makes the emergency state unmistakable: `EmergencyStopButton`
 switches to a large, continuously-pulsing red "CLEAR EMERGENCY STOP"
-button the instant `mission.state === "EMERGENCY"` arrives over the
-WebSocket, and a `confirm()` prompt guards *triggering* it (not clearing
+button when the mission reports `EMERGENCY` or the gateway reports its
+active emergency safety flag. The flag is also polled so an emergency
+triggered outside a running mission can still be cleared. A `confirm()`
+prompt guards *triggering* it (not clearing
 it — clearing should be fast once an operator has verified it's safe to
 resume).
 

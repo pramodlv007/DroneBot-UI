@@ -75,11 +75,6 @@ async def _control_tick(gw: GatewayState) -> None:
             continue
         state = store.robot_states.get(robot.robot_id)
         if state is None:
-            # If the robot is an ingest robot with an open WebSocket, keep it alive
-            if robot.adapter is not None and getattr(robot.adapter, "_ws", None) is not None:
-                robot.last_heartbeat_ms = now_ms_val
-                continue
-
             # Connected (bridge socket attached / heartbeat received) but not
             # a single telemetry sample has arrived yet. Give it up to the
             # same stale threshold from the moment it connected, then treat
@@ -101,10 +96,6 @@ async def _control_tick(gw: GatewayState) -> None:
                         message=f"{robot.robot_id} connected but sent no telemetry — marking offline",
                     )
                 )
-            continue
-
-        # If the robot has an active open WebSocket, don't drop it if stationary
-        if robot.adapter is not None and getattr(robot.adapter, "_ws", None) is not None:
             continue
 
         age_ms = now_ms_val - state.received_timestamp_ms

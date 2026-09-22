@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.mission_manager import InvalidTransitionError, MissionStateEnum
 from app.models import EventSeverity, MissionEvent, RobotCommand
@@ -20,17 +20,21 @@ from .deps import get_gateway
 router = APIRouter(prefix="/api/mission", tags=["mission"])
 
 
-class StartMissionRequest(BaseModel):
-    mission_id: str | None = None
-    leader_id: str
-    follower_id: str
-    recording: bool = True
-    experiment_name: str | None = None
-
-
 class SetRolesRequest(BaseModel):
     leader_id: str
     follower_id: str
+
+    @model_validator(mode="after")
+    def distinct_robots(self):
+        if self.leader_id == self.follower_id:
+            raise ValueError("Leader and follower must be different robots")
+        return self
+
+
+class StartMissionRequest(SetRolesRequest):
+    mission_id: str | None = None
+    recording: bool = True
+    experiment_name: str | None = None
 
 
 class EmergencyStopRequest(BaseModel):

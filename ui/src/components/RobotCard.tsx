@@ -64,7 +64,7 @@ function BotIcon({ size = 20 }: { size?: number }) {
   );
 }
 
-export default function RobotCard({ robot, isLeader, isFollower }: Props) {
+function RobotDetails({ robot, isLeader, isFollower }: Props) {
   const s = robot.state;
   const role = isLeader ? "LEADER" : isFollower ? "FOLLOWER" : null;
   const isUav = robot.robotType === "UAV";
@@ -196,4 +196,23 @@ export default function RobotCard({ robot, isLeader, isFollower }: Props) {
       )}
     </div>
   );
+}
+
+
+export default function RobotCard(props: Props) {
+  const { robot, isLeader, isFollower } = props;
+  const state = robot.connected ? robot.state : null;
+  return <article className="robot-summary">
+    <div className="robot-summary-heading"><h3>{robot.displayName || robotLabel(robot.robotId)}</h3>
+      <span className={robot.connected ? "connected-label" : "muted-label"}>{robot.connected ? "Connected" : "Offline"}</span></div>
+    <p className="robot-role">{isLeader ? "Leader" : isFollower ? "Follower" : "No role assigned"}</p>
+    {state && <dl>
+      <div><dt>Battery</dt><dd>{fmtNum(state.battery?.percentage, 0, "%")}</dd></div>
+      <div><dt>{robot.robotType === "UAV" ? "Altitude" : "Speed"}</dt><dd>{robot.robotType === "UAV" ? fmtNum(state.pose.z, 1, " m") : fmtNum(state.velocity?.linear_x, 2, " m/s")}</dd></div>
+    </dl>}
+    {state && ["WARNING", "CRITICAL"].includes(state.health) && <p className="robot-warning">{state.health.toLowerCase()} health · Check telemetry</p>}
+    {state?.metadata.armed === true && <p className="robot-warning">Armed</p>}
+    {robot.deadReckoning.active && <p className="robot-warning">Position estimated · Dead reckoning</p>}
+    <details className="quiet-details"><summary>Telemetry & settings</summary><RobotDetails {...props} /></details>
+  </article>;
 }

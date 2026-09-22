@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { api } from "@/services/api";
-import type { ExperimentDetail, ExperimentSummary } from "@/types/experiment";
+import { Link } from "react-router-dom";
+import { useAsyncData } from "@/hooks/useAsyncData";
+import LoadState from "./LoadState";
 import { fmtDuration, fmtNum, fmtTime } from "@/utils/format";
 
 interface ChartPoint {
@@ -13,30 +15,20 @@ interface ChartPoint {
 }
 
 export default function ExperimentPanel() {
-  const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
+  const list = useAsyncData(api.listExperiments);
+  const experiments = list.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [compareId, setCompareId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ExperimentDetail | null>(null);
-  const [series, setSeries] = useState<ChartPoint[]>([]);
-  const [compareSeries, setCompareSeries] = useState<ChartPoint[]>([]);
-
-  useEffect(() => {
-    api.listExperiments().then(setExperiments).catch(() => setExperiments([]));
-  }, []);
-
-  useEffect(() => {
-    if (!selectedId) return;
-    api.getExperiment(selectedId).then(setDetail);
-    loadSeries(selectedId).then(setSeries);
+  const loadDetail = useCallback(async () => {
+    const [detail, series] = await Promise.all([api.getExperiment(selectedId!), loadSeries(selectedId!)]);
+    return { detail, series };
   }, [selectedId]);
-
-  useEffect(() => {
-    if (!compareId) {
-      setCompareSeries([]);
-      return;
-    }
-    loadSeries(compareId).then(setCompareSeries);
-  }, [compareId]);
+  const loadComparison = useCallback(() => loadSeries(compareId!), [compareId]);
+  const selected = useAsyncData(selectedId ? loadDetail : null);
+  const comparison = useAsyncData(compareId ? loadComparison : null);
+  const detail = selected.data?.detail;
+  const series = selected.data?.series ?? [];
+  const compareSeries = comparison.data ?? [];
 
   async function loadSeries(id: string): Promise<ChartPoint[]> {
     const rows = await api.getExperimentCoordination(id);
@@ -56,14 +48,14 @@ export default function ExperimentPanel() {
   const metrics = detail?.metrics;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16, height: "100%" }}>
-      <div className="panel" style={{ overflowY: "auto" }}>
+    <div className="review-layout">
+      <div className="panel review-sidebar">
         <div className="panel-title">Experiments</div>
-        {experiments.length === 0 && <div className="empty-state">No recorded experiments yet</div>}
+        <LoadState {...list} />
+        {!list.loading && !list.error && experiments.length === 0 && <div className="empty-state"><p>No recordings yet. Enable recording when starting a mission.</p><Link to="/?view=mission">Open mission control</Link></div>}
         {experiments.map((exp) => (
           <div
             key={exp.id}
-            onClick={() => setSelectedId(exp.id)}
             style={{
               padding: "8px 10px",
               borderRadius: 6,
@@ -73,12 +65,14 @@ export default function ExperimentPanel() {
               border: `1px solid ${selectedId === exp.id ? "var(--accent)" : "transparent"}`,
             }}
           >
-            <div style={{ fontWeight: 600, fontSize: 12 }}>{exp.name ?? exp.id}</div>
-            <div style={{ fontSize: 10.5, color: "var(--text-2)" }}>
-              {fmtTime(exp.started_at_ms)} · {exp.status}
-            </div>
+            <button className="recording-choice" aria-pressed={selectedId === exp.id} onClick={() => setSelectedId(exp.id)}>
+              <strong>{exp.name ?? exp.id}</strong>
+              <span>{fmtTime(exp.started_at_ms)} · {exp.status}</span>
+            </button>
             <button
               style={{ marginTop: 4, fontSize: 9.5, padding: "2px 6px" }}
+              aria-pressed={compareId === exp.id}
+              aria-label={`Compare ${exp.name ?? exp.id}`}
               onClick={(e) => {
                 e.stopPropagation();
                 setCompareId(compareId === exp.id ? null : exp.id);
@@ -90,12 +84,14 @@ export default function ExperimentPanel() {
         ))}
       </div>
 
-      <div className="page-content" style={{ padding: 0 }}>
-        {!detail ? (
+      <div className="review-detail">
+        <LoadState {...selected} />
+        <LoadState {...comparison} />
+        {selected.loading || selected.error ? null : !detail ? (
           <div className="empty-state">Select an experiment to view its metrics and charts.</div>
         ) : (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div className="page-heading">
               <div>
                 <h2 style={{ margin: 0 }}>{detail.experiment.name ?? detail.experiment.id}</h2>
                 <div style={{ color: "var(--text-2)", fontSize: 11 }}>
@@ -104,12 +100,8 @@ export default function ExperimentPanel() {
                 </div>
               </div>
               <div>
-                <a href={api.exportExperimentUrl(detail.experiment.id, "json")} target="_blank" rel="noreferrer">
-                  <button>Export JSON</button>
-                </a>{" "}
-                <a href={api.exportExperimentUrl(detail.experiment.id, "csv")} target="_blank" rel="noreferrer">
-                  <button>Export CSV</button>
-                </a>
+                <a className="button-link" href={api.exportExperimentUrl(detail.experiment.id, "json")} target="_blank" rel="noreferrer">Export JSON</a>{" "}
+                <a className="button-link" href={api.exportExperimentUrl(detail.experiment.id, "csv")} target="_blank" rel="noreferrer">Export CSV</a>
               </div>
             </div>
 

@@ -104,3 +104,23 @@ def test_stop_distance_zeroes_command():
     _, command = mgr.compute(leader, follower)
     assert command.linear_x == 0.0
     assert command.angular_z == 0.0
+
+
+@pytest.mark.parametrize("robot_type", [RobotType.UAV, RobotType.UGV])
+@pytest.mark.parametrize("distance", [1.0, 1.5, 1.55, 3.0])
+def test_follower_respects_target_separation(robot_type, distance):
+    mgr = CoordinationManager(1.5, 2.0, 4.0)
+    mgr.set_roles("leader", "follower", {"leader": RobotType.UAV, "follower": robot_type})
+    _, command = mgr.compute(make_robot("leader", RobotType.UAV, distance, 0),
+                             make_robot("follower", robot_type, 0, 0))
+    assert command.linear_x == pytest.approx(min(0.22, max(0, distance - 1.5)))
+    assert command.linear_y == 0
+    assert command.angular_z == 0
+
+
+def test_missing_assigned_robot_is_lost():
+    mgr = CoordinationManager(1.5, 2.0, 4.0)
+    mgr.set_roles("leader", "follower", {"leader": RobotType.UAV})
+    state, command = mgr.compute(None, make_robot("follower", RobotType.UGV, 0, 0))
+    assert state.state == CoordinationTrackingState.LOST
+    assert command is None

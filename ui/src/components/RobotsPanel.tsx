@@ -37,14 +37,7 @@ export default function RobotsPanel() {
     <div className="panel robots-panel">
       <div className="panel-title-row">
         <div className="panel-title" style={{ margin: 0 }}>Robots</div>
-        <span style={{
-          fontSize: 10, fontWeight: 700, color: connectedCount > 0 ? "var(--ok)" : "var(--text-2)",
-          background: connectedCount > 0 ? "var(--ok-dim)" : "var(--unknown-dim)",
-          border: `1px solid ${connectedCount > 0 ? "rgba(60,232,128,0.2)" : "transparent"}`,
-          padding: "2px 7px", borderRadius: 4, letterSpacing: "0.04em",
-        }}>
-          {connectedCount}/{registry.length} online
-        </span>
+        <span className="muted-label">{connectedCount} of {registry.length} connected</span>
       </div>
 
       <div className="robots-scroll-container">
@@ -61,7 +54,7 @@ export default function RobotsPanel() {
         ))}
 
         {/* Sparkline history below the cards */}
-        <TelemetryHistoryPanel />
+        <details className="quiet-details"><summary>Telemetry history</summary><TelemetryHistoryPanel /></details>
       </div>
     </div>
   );

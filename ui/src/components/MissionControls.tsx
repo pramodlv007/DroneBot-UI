@@ -1,186 +1,113 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/services/api";
 import { useMissionStore } from "@/stores/missionStore";
 import { useRobotStore } from "@/stores/robotStore";
 import { useCoordinationStore } from "@/stores/coordinationStore";
-import { robotLabel } from "@/utils/format";
+import { useConnectionStore } from "@/stores/connectionStore";
+import { robotLabel, fmtDuration } from "@/utils/format";
+import { isActiveMission, startBlockReason } from "@/utils/mission";
+import type { MissionState } from "@/types/mission";
 import EmergencyStopButton from "./EmergencyStopButton";
 
 function ElapsedTimer({ startedAtMs }: { startedAtMs: number | null }) {
-  const [elapsed, setElapsed] = useState("—");
-  const rafRef = useRef<number>(0);
-
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (!startedAtMs) { setElapsed("—"); return; }
-    function update() {
-      const s = Math.floor((Date.now() - startedAtMs!) / 1000);
-      const mm = String(Math.floor(s / 60)).padStart(2, "0");
-      const ss = String(s % 60).padStart(2, "0");
-      setElapsed(`${mm}:${ss}`);
-      rafRef.current = requestAnimationFrame(update);
-    }
-    rafRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [startedAtMs]);
-
-  return (
-    <div className="mission-elapsed" title="Mission elapsed time">{elapsed}</div>
-  );
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <span className="mission-elapsed" title="Wall time since mission start, including pauses">
+    {startedAtMs ? fmtDuration(Math.max(0, now - startedAtMs) / 1000) : "—"}
+  </span>;
 }
 
-const MISSION_STATE_COLORS: Record<string, string> = {
-  DISCONNECTED: "var(--text-2)",
-  READY: "var(--accent)",
-  ARMED: "var(--warn)",
-  RUNNING: "var(--ok)",
-  PAUSED: "var(--warn)",
-  DEGRADED: "var(--warn)",
-  EMERGENCY: "var(--crit)",
-  STOPPED: "var(--text-2)",
-  COMPLETED: "var(--ok)",
-};
-
 export default function MissionControls() {
-  const mission = useMissionStore((s) => s.mission);
-  const robots = useRobotStore((s) => s.robots);
-  const coordination = useCoordinationStore((s) => s.coordination);
-  const [leaderId, setLeaderId] = useState<string>(coordination.leader_id ?? "");
-  const [followerId, setFollowerId] = useState<string>(coordination.follower_id ?? "");
+  const mission = useMissionStore(s => s.mission);
+  const robots = useRobotStore(s => s.robots);
+  const coordination = useCoordinationStore(s => s.coordination);
+  const online = useConnectionStore(s => s.wsStatus === "OPEN");
+  const [leaderId, setLeaderId] = useState(coordination.leader_id ?? "");
+  const [followerId, setFollowerId] = useState(coordination.follower_id ?? "");
   const [recording, setRecording] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const emergencyActive = useMissionStore(s => s.emergencyActive);
+  const active = isActiveMission(mission.state) || emergencyActive;
+  const canStop = ["RUNNING", "PAUSED", "DEGRADED", "EMERGENCY"].includes(mission.state);
+  const canSwap = ["RUNNING", "PAUSED", "DEGRADED"].includes(mission.state);
+  const blocked = startBlockReason(mission.state, online, leaderId, followerId, robots);
 
-  const robotIds = Object.keys(robots);
-  const canStart = leaderId && followerId && leaderId !== followerId && !busy;
-  const isRunning = mission.state === "RUNNING";
-  const isPaused = mission.state === "PAUSED";
-  const canControl = isRunning || isPaused;
-  const missionColor = MISSION_STATE_COLORS[mission.state] ?? "var(--text-2)";
+  useEffect(() => {
+    if (coordination.leader_id) setLeaderId(coordination.leader_id);
+    if (coordination.follower_id) setFollowerId(coordination.follower_id);
+  }, [coordination.leader_id, coordination.follower_id]);
 
-  async function run(fn: () => Promise<unknown>) {
-    setBusy(true);
+  async function run(label: string, action: () => Promise<unknown>) {
+    setPending(label);
     setError(null);
-    try {
-      await fn();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    try { await action(); } catch (e) {
+      setError(e instanceof Error ? e.message : "The request failed. Try again.");
+    } finally { setPending(null); }
   }
-
-  async function switchRoles() {
-    if (!leaderId || !followerId) return;
-    await run(() => api.setRoles(followerId, leaderId));
-    const tmp = leaderId;
-    setLeaderId(followerId);
-    setFollowerId(tmp);
-  }
+  const updateMission = async (action: () => Promise<MissionState>) => {
+    useMissionStore.getState().setMission(await action());
+  };
+  const disabled = !!pending || !online;
 
   return (
-    <div className="controls-bar">
-      {/* Left: mission controls */}
-      <div className="controls-left">
-        {/* Mission state indicator */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <span style={{
-            fontSize: 9, fontWeight: 700, textTransform: "uppercase",
-            letterSpacing: "0.07em", color: "var(--text-2)"
-          }}>State</span>
-          <span style={{ fontSize: 11, fontWeight: 800, color: missionColor, letterSpacing: "0.04em", fontFamily: "var(--mono)" }}>
-            {mission.state}
-          </span>
-        </div>
-
-        <div style={{ width: 1, height: 28, background: "var(--border)", flexShrink: 0 }} />
-
-        {/* Role selectors — only when not running */}
-        {!canControl && (
-          <>
-            <div className="role-selector-group">
-              <span className="role-selector-label">Leader</span>
-              <select value={leaderId} onChange={(e) => setLeaderId(e.target.value)} disabled={busy} id="select-leader">
-                <option value="">Select…</option>
-                {robotIds.map((id) => (
-                  <option key={id} value={id} disabled={id === followerId}>{robotLabel(id)}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ color: "var(--text-2)", fontSize: 16 }}>→</div>
-            <div className="role-selector-group">
-              <span className="role-selector-label">Follower</span>
-              <select value={followerId} onChange={(e) => setFollowerId(e.target.value)} disabled={busy} id="select-follower">
-                <option value="">Select…</option>
-                {robotIds.map((id) => (
-                  <option key={id} value={id} disabled={id === leaderId}>{robotLabel(id)}</option>
-                ))}
-              </select>
-            </div>
-
-            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-1)", cursor: "pointer", userSelect: "none" }}>
-              <input type="checkbox" checked={recording} onChange={(e) => setRecording(e.target.checked)} />
-              Record
-            </label>
-          </>
-        )}
-
-        {/* Elapsed timer when running */}
-        {canControl && <ElapsedTimer startedAtMs={mission.started_at_ms ?? null} />}
-
-        {/* Action buttons */}
-        {!canControl && (
-          <button
-            className="primary"
-            disabled={!canStart}
-            onClick={() => run(() => api.startMission({ leader_id: leaderId, follower_id: followerId, recording }))}
-            id="btn-start-mission"
-          >
-            ▶ START
-          </button>
-        )}
-        {isRunning && (
-          <button disabled={busy} onClick={() => run(() => api.pauseMission())} id="btn-pause-mission">
-            ⏸ PAUSE
-          </button>
-        )}
-        {isPaused && (
-          <button className="primary" disabled={busy} onClick={() => run(() => api.resumeMission())} id="btn-resume-mission">
-            ▶ RESUME
-          </button>
-        )}
-        {canControl && (
-          <button disabled={busy} onClick={() => run(() => api.stopMission())} id="btn-stop-mission">
-            ⏹ STOP
-          </button>
-        )}
-        {canControl && (
-          <button disabled={busy} onClick={switchRoles} title="Swap leader and follower roles" id="btn-switch-roles">
-            ⇄ ROLES
-          </button>
-        )}
-
-        {error && (
-          <span style={{ color: "var(--crit)", fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            ⚠ {error}
-          </span>
-        )}
-      </div>
-
-      {/* Right: recording indicator + mission id + E-stop */}
-      <div className="controls-right">
-        {mission.recording && mission.experiment_id && (
-          <div className="recording-indicator">
-            <span className="rec-dot" />
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10 }}>REC · {mission.experiment_id.slice(0, 8)}</span>
+    <section className="mission-controls" aria-label="Mission controls" aria-busy={!!pending}>
+      <div className="controls-bar">
+        <div className="controls-left">
+          <div className="mission-status"><span className="role-selector-label">Mission state</span>
+            <strong className={`badge ${mission.state}`}>{mission.state}</strong>
           </div>
-        )}
-        {mission.mission_id && (
-          <span style={{ fontSize: 10, color: "var(--text-2)", fontFamily: "var(--mono)" }}>
-            {mission.mission_id}
-          </span>
-        )}
-        <EmergencyStopButton />
+          {!active ? <>
+            <div className="role-selector-group">
+              <label className="role-selector-label" htmlFor="select-leader">Leader</label>
+              <select id="select-leader" value={leaderId} onChange={e => setLeaderId(e.target.value)} disabled={disabled}>
+                <option value="">Choose leader</option>
+                {Object.values(robots).map(r => <option key={r.robot_id} value={r.robot_id} disabled={!r.connected || r.robot_id === followerId}>
+                  {robotLabel(r.robot_id)}{r.connected ? "" : " · Offline"}
+                </option>)}
+              </select>
+            </div>
+            <div className="role-selector-group">
+              <label className="role-selector-label" htmlFor="select-follower">Follower</label>
+              <select id="select-follower" value={followerId} onChange={e => setFollowerId(e.target.value)} disabled={disabled}>
+                <option value="">Choose follower</option>
+                {Object.values(robots).map(r => <option key={r.robot_id} value={r.robot_id} disabled={!r.connected || r.robot_id === leaderId}>
+                  {robotLabel(r.robot_id)}{r.connected ? "" : " · Offline"}
+                </option>)}
+              </select>
+            </div>
+            <label className="record-option"><input type="checkbox" checked={recording} disabled={disabled} onChange={e => setRecording(e.target.checked)} /> Record experiment</label>
+            <button className="primary" disabled={disabled || !!blocked} aria-describedby="mission-feedback" id="btn-start-mission"
+              onClick={() => run("Starting mission…", () => updateMission(() => api.startMission({ leader_id: leaderId, follower_id: followerId, recording })))}>Start mission</button>
+          </> : <>
+            <span className="active-roles">{robotLabel(coordination.leader_id ?? "")} <span aria-label="leads">→</span> {robotLabel(coordination.follower_id ?? "")}</span>
+            <ElapsedTimer startedAtMs={mission.started_at_ms} />
+          </>}
+          {mission.state === "RUNNING" && <button disabled={disabled} onClick={() => run("Pausing…", () => updateMission(api.pauseMission))}>Pause</button>}
+          {mission.state === "PAUSED" && <button className="primary" disabled={disabled} onClick={() => run("Resuming…", () => updateMission(api.resumeMission))}>Resume</button>}
+          {canStop && <button disabled={disabled} onClick={() => run("Stopping…", () => updateMission(api.stopMission))}>Stop mission</button>}
+          {canSwap && <button disabled={disabled || !coordination.leader_id || !coordination.follower_id}
+            onClick={() => run("Swapping roles…", async () => {
+              const leader = coordination.follower_id!;
+              const follower = coordination.leader_id!;
+              await api.setRoles(leader, follower);
+              setLeaderId(leader);
+              setFollowerId(follower);
+            })}>Swap roles</button>}
+        </div>
+        <div className="controls-right">
+          {active && mission.recording && mission.experiment_id && <span className="recording-indicator"><span className="rec-dot" /> Recording</span>}
+          <EmergencyStopButton />
+        </div>
       </div>
-    </div>
+      <div id="mission-feedback" className={`control-feedback ${error ? "error" : ""}`} role={error ? "alert" : "status"}>
+        {error ?? pending ?? (emergencyActive ? "Emergency stop is active. Clear it when safe before starting another mission." : mission.state === "DEGRADED" ? "Tracking lost. Movement is suspended; check robot connections or stop the mission." :
+          !active ? blocked ?? "Ready to start. Your selected roles will be used for this mission." :
+          mission.state === "PAUSED" ? "Mission paused. Resume when ready, or stop to finish the recording." : `Mission ${mission.mission_id ?? ""}`)}
+      </div>
+    </section>
   );
 }

@@ -103,11 +103,16 @@ class Settings(BaseModel):
     anthropic_model: str = "claude-sonnet-5"
 
 
+def _config_path(variable: str, filename: str) -> Path:
+    path = Path(os.environ.get(variable, f"config/{filename}"))
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
 @lru_cache
 def get_settings() -> Settings:
-    robots_path = Path(os.environ.get("ROBOTS_CONFIG_PATH", REPO_ROOT / "config" / "robots.yaml"))
-    mission_path = Path(os.environ.get("MISSION_CONFIG_PATH", REPO_ROOT / "config" / "mission.yaml"))
-    system_path = Path(os.environ.get("SYSTEM_CONFIG_PATH", REPO_ROOT / "config" / "system.yaml"))
+    robots_path = _config_path("ROBOTS_CONFIG_PATH", "robots.yaml")
+    mission_path = _config_path("MISSION_CONFIG_PATH", "mission.yaml")
+    system_path = _config_path("SYSTEM_CONFIG_PATH", "system.yaml")
 
     robots_raw = _load_yaml(robots_path).get("robots", {})
     mission_raw = _load_yaml(mission_path)

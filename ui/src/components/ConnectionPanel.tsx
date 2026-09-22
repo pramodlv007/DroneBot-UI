@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/services/api";
 import type { RegisteredRobot } from "@/types/robot";
 import { useRobotStore } from "@/stores/robotStore";
+import { useMissionStore } from "@/stores/missionStore";
+import { isActiveMission } from "@/utils/mission";
 import RobotConnectionSettings from "./RobotConnectionSettings";
 
 interface Props {
@@ -53,7 +55,7 @@ function RawTelemetryBlock({ robotId }: { robotId: string }) {
       borderRadius: 6, padding: "8px 10px",
     }}>
       <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--ok)", marginBottom: 6 }}>
-        ✓ Live Telemetry Streaming
+        Telemetry
       </div>
       {rows.map(([label, val]) => (
         <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: "1px solid var(--bg-2)", fontSize: 10.5 }}>
@@ -65,13 +67,13 @@ function RawTelemetryBlock({ robotId }: { robotId: string }) {
   );
 }
 
-function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string }) {
+function RobotSetupCard({ robot, mode, onRefresh }: { robot: RegisteredRobot; mode: string; onRefresh: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const isUav = robot.robotType === "UAV";
   const liveState = useRobotStore((s) => s.robots[robot.robotId]);
-  const hasData = !!liveState;
+  const hasData = !!liveState?.connected;
 
   async function toggle() {
     setBusy(true);
@@ -82,6 +84,7 @@ function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string 
       } else {
         await api.connectRobot(robot.robotId);
       }
+      await onRefresh();
     } catch (e: any) {
       setError(String(e).replace("Error: POST /api/robots/", "").replace("/connect -> ", ": "));
     } finally {
@@ -92,11 +95,11 @@ function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string 
   const connStr = robot.connection.connection ?? robot.connection.namespace ?? "—";
 
   return (
-    <div style={{
+    <div className="robot-setup-card" style={{
       background: "var(--bg-2)", border: `1px solid ${robot.connected ? "rgba(60,232,128,0.3)" : "var(--border)"}`,
       borderTop: `3px solid ${isUav ? "var(--drone-color)" : "var(--bot-color)"}`,
       borderRadius: "var(--radius-lg)", padding: 18,
-      flex: 1, minWidth: 280, maxWidth: 420,
+      flex: 1, minWidth: 0, width: "100%", maxWidth: 420,
     }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -106,7 +109,7 @@ function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string 
           border: `1px solid ${isUav ? "rgba(94,174,255,0.25)" : "rgba(168,85,247,0.25)"}`,
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          {isUav ? "🚁" : "🤖"}
+          {isUav ? "A" : "G"}
         </div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-0)" }}>{robot.displayName}</div>
@@ -127,7 +130,7 @@ function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string 
       </div>
 
       {/* Connection string display */}
-      <div style={{ marginBottom: 10 }}>
+      {mode !== "SIMULATION" && <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 9.5, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>
           {isUav ? "MAVLink Connection String" : "ROS2 Namespace"}
         </div>
@@ -145,6 +148,7 @@ function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string 
         )}
       </div>
 
+      }
       {/* Error */}
       {error && (
         <div style={{
@@ -156,34 +160,23 @@ function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string 
         </div>
       )}
 
-      {/* SIMULATION warning */}
-      {mode === "SIMULATION" && (
-        <div style={{
-          color: "var(--warn)", fontSize: 10.5, background: "var(--warn-dim)",
-          border: "1px solid rgba(255,180,58,0.2)", borderRadius: 5,
-          padding: "5px 8px", marginBottom: 8,
-        }}>
-          ⚠ Mode is <strong>SIMULATION</strong> — showing mock data. Switch to <strong>PHYSICAL</strong> above to use real hardware.
-        </div>
-      )}
-
       {/* Buttons */}
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <button
           className={robot.connected ? "danger" : "primary"}
-          disabled={busy}
+          disabled={busy || mode === "UNKNOWN"}
           onClick={toggle}
           style={{ flex: 1, fontSize: 12, padding: "8px" }}
         >
-          {busy ? <ConnectingSpinner /> : robot.connected ? "DISCONNECT" : "CONNECT"}
+          {busy ? <ConnectingSpinner /> : robot.connected ? "Disconnect" : "Connect"}
         </button>
         <button
-          disabled={robot.connected}
+          disabled={robot.connected || busy}
           onClick={() => setEditing(!editing)}
           title={robot.connected ? "Disconnect first to reconfigure" : "Configure connection"}
           style={{ fontSize: 12 }}
         >
-          {editing ? "✕ CLOSE" : "⚙ CONFIGURE"}
+          {editing ? "Close" : "Configure"}
         </button>
       </div>
 
@@ -191,31 +184,39 @@ function RobotSetupCard({ robot, mode }: { robot: RegisteredRobot; mode: string 
       {editing && (
         <RobotConnectionSettings
           robot={robot}
-          onSaved={() => setEditing(false)}
+          onSaved={() => { setEditing(false); void onRefresh(); }}
         />
       )}
 
       {/* Live telemetry readout */}
-      {robot.connected && <RawTelemetryBlock robotId={robot.robotId} />}
+      {robot.connected && <details className="quiet-details"><summary>View telemetry</summary><RawTelemetryBlock robotId={robot.robotId} /></details>}
     </div>
   );
 }
 
 export default function ConnectionPanel({ onProceed }: Props) {
   const [robots, setRobots] = useState<RegisteredRobot[]>([]);
-  const [mode, setMode] = useState("SIMULATION");
+  const [mode, setMode] = useState("UNKNOWN");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const missionState = useMissionStore(s => s.mission.state);
+  const emergencyActive = useMissionStore(s => s.emergencyActive);
   const [modeError, setModeError] = useState<string | null>(null);
   const [modeBusy, setModeBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const list = await api.listRobots();
+      const [list, health] = await Promise.all([api.listRobots(), api.getHealth()]);
       setRobots(list);
-    } catch { /* retry */ }
+      setMode(String(health.deploymentMode ?? "UNKNOWN"));
+      setLoadError(null);
+    } catch {
+      setLoadError("Could not reach the gateway. Check the connection and try again.");
+      setMode("UNKNOWN");
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
-    api.getHealth().then((h: any) => setMode(h.deploymentMode ?? "SIMULATION")).catch(() => {});
     refresh();
     const iv = setInterval(refresh, 2000);
     return () => clearInterval(iv);
@@ -225,10 +226,6 @@ export default function ConnectionPanel({ onProceed }: Props) {
     setModeBusy(true);
     setModeError(null);
     try {
-      // Must disconnect all first
-      for (const r of robots.filter((r) => r.connected)) {
-        await api.disconnectRobot(r.robotId);
-      }
       const res = await api.setDeploymentMode(next);
       setMode(res.deploymentMode);
       await refresh();
@@ -240,13 +237,15 @@ export default function ConnectionPanel({ onProceed }: Props) {
   }
 
   const connectedCount = robots.filter((r) => r.connected).length;
+  const modeLocked = modeBusy || mode === "UNKNOWN" || connectedCount > 0 || isActiveMission(missionState) || emergencyActive;
 
   return (
     <div className="connection-screen">
       {/* ── Title ── */}
       <div className="connection-screen-header">
-        <h1>DroneBot Connect</h1>
-        <p>Configure and connect your <strong style={{ color: "var(--drone-color)" }}>Pixhawk Drone</strong> and <strong style={{ color: "var(--bot-color)" }}>TurtleBot</strong> to stream live data.</p>
+
+        <h1>Connections</h1>
+        <p>Choose a mode, connect your robots, then open mission control.</p>
       </div>
 
       {/* ── Deployment Mode Switcher ── */}
@@ -258,19 +257,20 @@ export default function ConnectionPanel({ onProceed }: Props) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: mode === "PHYSICAL" ? "var(--ok)" : "var(--warn)", marginBottom: 2 }}>
-              {mode === "PHYSICAL" ? "✓ PHYSICAL MODE — Real Hardware Active" : "⚠ SIMULATION MODE — Using Fake Data"}
+              {mode === "PHYSICAL" ? "Physical · Real hardware" : mode === "SIMULATION" ? "Simulation · Practice without hardware" : mode === "TEST" ? "Test · Hardware adapters" : "Checking deployment mode…"}
             </div>
             <div style={{ fontSize: 10.5, color: "var(--text-2)" }}>
-              {mode === "PHYSICAL"
-                ? "The gateway will connect to real robots. CONNECT to start streaming."
-                : "Switch to PHYSICAL mode before clicking CONNECT to use your real drone and TurtleBot."}
+              {mode === "UNKNOWN" ? "Waiting for the gateway to report its current mode."
+                : connectedCount > 0 || isActiveMission(missionState)
+                ? "Stop any active mission and disconnect all robots before changing mode."
+                : "Simulation uses generated telemetry. Physical connects to your configured robots."}
             </div>
             {modeError && <div style={{ color: "var(--crit)", fontSize: 10.5, marginTop: 4 }}>⚠ {modeError}</div>}
           </div>
           <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
             <button
               className={mode === "SIMULATION" ? "primary" : ""}
-              disabled={modeBusy || mode === "SIMULATION"}
+              disabled={modeLocked || mode === "SIMULATION"}
               onClick={() => switchMode("SIMULATION")}
               style={{ fontSize: 11, padding: "7px 14px" }}
             >
@@ -282,7 +282,7 @@ export default function ConnectionPanel({ onProceed }: Props) {
                 fontSize: 11, padding: "7px 14px",
                 ...(mode === "PHYSICAL" ? {} : { borderColor: "rgba(60,232,128,0.4)", color: "var(--ok)", background: "var(--ok-dim)" }),
               }}
-              disabled={modeBusy || mode === "PHYSICAL"}
+              disabled={modeLocked || mode === "PHYSICAL"}
               onClick={() => switchMode("PHYSICAL")}
             >
               {modeBusy ? "…" : "PHYSICAL"}
@@ -293,32 +293,30 @@ export default function ConnectionPanel({ onProceed }: Props) {
 
       {/* ── Robot Cards ── */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center", maxWidth: 860, width: "100%" }}>
-        {robots.length === 0 ? (
-          <div className="empty-state">
-            No robots found. Is the backend running?<br />
-            Check <code style={{ fontFamily: "var(--mono)" }}>config/robots.yaml</code>
-          </div>
-        ) : (
-          robots.map((r) => <RobotSetupCard key={r.robotId} robot={r} mode={mode} />)
-        )}
+        {loading ? <div className="empty-state" role="status">Loading your robots…</div> : loadError ? (
+          <div className="empty-state" role="alert"><p>{loadError}</p><button onClick={refresh}>Try again</button></div>
+        ) : robots.length === 0 ? (
+          <div className="empty-state">No robots configured. Add your robot team before starting a mission.</div>
+        ) : robots.map(r => <RobotSetupCard key={r.robotId} robot={r} mode={mode} onRefresh={refresh} />)}
       </div>
 
       {/* ── Connection instructions ── */}
-      <div style={{ maxWidth: 720, width: "100%" }}>
-        <div style={{
+      <details className="setup-help">
+        <summary>Physical hardware setup instructions</summary>
+        <div className="setup-instructions" style={{
           background: "var(--bg-2)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
-          padding: "14px 18px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20,
+          padding: "14px 18px", display: "grid", gap: 20,
         }}>
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--drone-color)", marginBottom: 8 }}>
-              🚁 Pixhawk / MAVLink
+              Pixhawk / MAVLink
             </div>
             <ol style={{ paddingLeft: 16, fontSize: 11, color: "var(--text-1)", lineHeight: 2, margin: 0 }}>
               <li>Switch mode to <strong>PHYSICAL</strong> above.</li>
               <li>Connect Pixhawk USB telemetry to PC.</li>
-              <li>Click <strong>⚙ CONFIGURE</strong> on Drone card.</li>
+              <li>Click <strong>Configure</strong> on Drone card.</li>
               <li>Set connection to <code style={{ color: "var(--accent)", fontFamily: "var(--mono)", fontSize: 10 }}>COM4</code> and baud to <code style={{ color: "var(--accent)", fontFamily: "var(--mono)", fontSize: 10 }}>57600</code>.</li>
-              <li>Click <strong>SAVE</strong> → <strong>CONNECT</strong>.</li>
+              <li>Click <strong>SAVE</strong> → <strong>Connect</strong>.</li>
             </ol>
             <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-2)", background: "var(--bg-3)", borderRadius: 5, padding: "5px 8px" }}>
               Baud 57600: most telemetry radios<br />
@@ -328,19 +326,19 @@ export default function ConnectionPanel({ onProceed }: Props) {
           </div>
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--bot-color)", marginBottom: 8 }}>
-              🤖 TurtleBot / ROS2
+              TurtleBot / ROS2
             </div>
             <ol style={{ paddingLeft: 16, fontSize: 11, color: "var(--text-1)", lineHeight: 2, margin: 0 }}>
               <li>Switch mode to <strong>PHYSICAL</strong> above.</li>
               <li>Ensure PC and TurtleBot are on same Wi-Fi.</li>
-              <li>Click <strong>⚙ CONFIGURE</strong> on TurtleBot card.</li>
+              <li>Click <strong>Configure</strong> on TurtleBot card.</li>
               <li>Copy the <code style={{ fontFamily: "var(--mono)", fontSize: 10 }}>ros2 launch</code> command shown.</li>
               <li>SSH into TurtleBot → run the command.</li>
-              <li>Click <strong>CONNECT</strong> — data streams in.</li>
+              <li>Click <strong>Connect</strong> — data streams in.</li>
             </ol>
           </div>
         </div>
-      </div>
+      </details>
 
       {/* ── Proceed button ── */}
       <div style={{
@@ -351,15 +349,16 @@ export default function ConnectionPanel({ onProceed }: Props) {
         marginBottom: 24,
       }}>
         <div style={{ fontSize: 12, color: "var(--text-1)" }}>
-          <StatusDot ok={connectedCount > 0} />
-          {connectedCount} of {robots.length} robot(s) connected{mode === "SIMULATION" ? " (simulation)" : " (physical)"}
+          <StatusDot ok={!loadError && !loading && connectedCount > 0} />
+          {loadError ? "Robot status unavailable · Gateway offline" : loading ? "Checking robot connections…" :
+            `${connectedCount} of ${robots.length} robots connected · ${mode.toLowerCase()}`}
         </div>
         <button
           onClick={onProceed}
           className="primary"
           style={{ fontSize: 12, padding: "8px 20px" }}
         >
-          {connectedCount >= 2 ? "Launch Mission Control →" : "Open Mission View →"}
+          {!loadError && connectedCount >= 2 ? "Launch Mission Control →" : "Open Mission View →"}
         </button>
       </div>
     </div>

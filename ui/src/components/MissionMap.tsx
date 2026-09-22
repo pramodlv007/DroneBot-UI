@@ -21,10 +21,10 @@ export default function MissionMap() {
   return (
     <div className="panel map-panel">
       <div className="panel-title-row">
-        <div className="panel-title" style={{ margin: 0 }}>Live Mission View</div>
+        <div className="panel-title" style={{ margin: 0 }}>Position</div>
         <div className="map-toggle">
           <button className={mode === "LOCAL" ? "primary" : ""} onClick={() => setMode("LOCAL")}>
-            LOCAL
+            Local
           </button>
           <button
             className={mode === "GEOGRAPHIC" ? "primary" : ""}
@@ -32,7 +32,7 @@ export default function MissionMap() {
             disabled={!hasGps}
             title={hasGps ? "" : "No robot is reporting GPS"}
           >
-            GPS MAP
+            GPS
           </button>
         </div>
       </div>
@@ -106,7 +106,7 @@ export function LocalFrameMap({
       const isMajor = g === 0;
       lines.push(
         <line key={`v${g}`} x1={sx} y1={0} x2={sx} y2={100}
-          stroke={isMajor ? "rgba(94,174,255,0.18)" : "rgba(30,42,61,0.8)"}
+          stroke={isMajor ? "rgba(180,190,205,0.18)" : "rgba(180,190,205,0.07)"}
           strokeWidth={isMajor ? 0.3 : 0.15} />
       );
       if (g !== 0)
@@ -117,7 +117,7 @@ export function LocalFrameMap({
       const isMajor = g === 0;
       lines.push(
         <line key={`h${g}`} x1={0} y1={sy} x2={100} y2={sy}
-          stroke={isMajor ? "rgba(94,174,255,0.18)" : "rgba(30,42,61,0.8)"}
+          stroke={isMajor ? "rgba(180,190,205,0.18)" : "rgba(180,190,205,0.07)"}
           strokeWidth={isMajor ? 0.3 : 0.15} />
       );
       if (g !== 0)
@@ -137,11 +137,11 @@ export function LocalFrameMap({
         position: "absolute", top: 6, right: 6, zIndex: 5,
         display: "flex", flexDirection: "column", gap: 3,
       }}>
-        <button onClick={() => setZoom((z) => Math.min(z * 1.4, 10))}
+        <button aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(z * 1.4, 10))}
           style={{ width: 26, height: 26, padding: 0, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-        <button onClick={() => setZoom(1)} title="Reset zoom"
+        <button aria-label="Fit map to robots" onClick={() => setZoom(1)} title="Reset zoom"
           style={{ width: 26, height: 26, padding: 0, fontSize: 9, letterSpacing: 0 }}>FIT</button>
-        <button onClick={() => setZoom((z) => Math.max(z / 1.4, 0.2))}
+        <button aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(z / 1.4, 0.2))}
           style={{ width: 26, height: 26, padding: 0, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
       </div>
 
@@ -150,14 +150,6 @@ export function LocalFrameMap({
         preserveAspectRatio="xMidYMid meet"
         style={{ width: "100%", height: "100%" }}
       >
-        <defs>
-          <radialGradient id="bg-grad" cx="50%" cy="50%" r="70%">
-            <stop offset="0%" stopColor="rgba(13,17,23,0)" />
-            <stop offset="100%" stopColor="rgba(8,11,16,0.4)" />
-          </radialGradient>
-        </defs>
-        <rect x={0} y={0} width={100} height={100} fill="url(#bg-grad)" />
-
         {/* Grid */}
         {gridLines}
 
@@ -275,18 +267,7 @@ export function LocalFrameMap({
         {/* Empty state */}
         {robots.length === 0 && (
           <g>
-            {/* Animated radar sweep */}
-            <circle cx={50} cy={50} r={18} fill="none" stroke="rgba(30,42,61,0.8)" strokeWidth={0.5} />
-            <circle cx={50} cy={50} r={10} fill="none" stroke="rgba(30,42,61,0.8)" strokeWidth={0.5} />
-            <circle cx={50} cy={50} r={4} fill="rgba(94,174,255,0.15)" />
-            <line x1={50} y1={50} x2={50} y2={32} stroke="rgba(94,174,255,0.4)" strokeWidth={0.4}>
-              <animateTransform
-                attributeName="transform" type="rotate"
-                from="0 50 50" to="360 50 50"
-                dur="3s" repeatCount="indefinite"
-              />
-            </line>
-            <text x={50} y={74} textAnchor="middle" fontSize={3.5} fill="rgba(90,112,144,0.6)">
+            <text x={50} y={50} textAnchor="middle" fontSize={3.5} fill="var(--text-2)">
               No robots connected
             </text>
           </g>

@@ -11,7 +11,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`${init?.method ?? "GET"} ${path} -> ${res.status}: ${body}`);
+    let message = `Request failed (${res.status}). Please try again.`;
+    try {
+      const payload = JSON.parse(body);
+      if (typeof payload.detail === "string") message = payload.detail;
+      else if (Array.isArray(payload.detail)) message = payload.detail.map((item: { msg: string }) => item.msg).join(" ");
+    } catch { /* Proxy error pages are not useful operator-facing messages. */ }
+    throw new Error(message);
   }
   const contentType = res.headers.get("content-type") ?? "";
   return (contentType.includes("application/json") ? res.json() : res.text()) as Promise<T>;
@@ -49,7 +55,7 @@ export const api = {
   resumeMission: () => request<MissionState>("/api/mission/resume", { method: "POST" }),
   stopMission: () => request<MissionState>("/api/mission/stop", { method: "POST" }),
   emergencyStop: (source = "operator") =>
-    request("/api/mission/emergency_stop", { method: "POST", body: JSON.stringify({ source }) }),
+    request<{ mission: MissionState; emergency: { active: boolean } }>("/api/mission/emergency_stop", { method: "POST", body: JSON.stringify({ source }) }),
   clearEmergency: () => request<MissionState>("/api/mission/emergency_clear", { method: "POST" }),
   setRoles: (leader_id: string, follower_id: string) =>
     request("/api/mission/roles", { method: "POST", body: JSON.stringify({ leader_id, follower_id }) }),

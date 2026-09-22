@@ -104,8 +104,12 @@ class TurtleBotAdapter(RobotAdapter):
 
     def attach_ws(self, ws) -> None:
         self._ws = ws
-        # Now the robot is truly connected — notify the registry
-        self._state = self._state.model_copy(update={"connected": True, "health": HealthState.UNKNOWN})
+        # Give a newly attached bridge one full freshness window to send telemetry.
+        self._state = self._state.model_copy(update={
+            "connected": True,
+            "health": HealthState.UNKNOWN,
+            "received_timestamp_ms": int(time.time() * 1000),
+        })
         if self._on_connect_cb is not None:
             try:
                 self._on_connect_cb()
@@ -117,9 +121,12 @@ class TurtleBotAdapter(RobotAdapter):
         self._state = self._state.model_copy(update={"connected": False, "health": HealthState.UNKNOWN})
 
     def ingest_state(self, state: RobotState) -> None:
+        # Receive time belongs to the gateway clock, never the remote robot.
+        if state.robot_id != self.robot_id:
+            raise ValueError("Telemetry robot_id does not match the ingest slot")
         self._last_ingest_ms = int(time.time() * 1000)
-        self._state = state
-        self._emit(state)
+        self._state = state.model_copy(update={"received_timestamp_ms": self._last_ingest_ms})
+        self._emit(self._state)
 
     @property
     def armed(self) -> bool:

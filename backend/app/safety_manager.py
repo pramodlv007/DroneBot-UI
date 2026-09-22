@@ -4,21 +4,15 @@ command must pass through (§15). Nothing else in the backend calls
 adapter.send_command() directly; mission_manager always routes through
 SafetyManager.check_and_clamp() first.
 
-Checks performed, in order (any failure blocks the command and returns a
-reason instead of a clamped command):
-  1. robot connected
-  2. heartbeat / telemetry freshness (heartbeat_timeout_s, telemetry_stale_s)
-  3. mission state allows commands (not STOPPED/EMERGENCY/DISCONNECTED)
-  4. not in emergency stop
-  5. command rate limit
-  6. velocity/angular-velocity clamped to configured limits (never rejected
-     for being too fast — clamped, since a clamp is safer than a full stop
-     for a coordination controller)
+Checks emergency and mission state, connection, robot identity, finite
+velocity values, telemetry freshness, and command rate. Allowed commands
+have horizontal speed and angular velocity clamped to configured limits.
+Emergency zero commands deliberately bypass this gate (see docs/safety.md).
 """
 
 from __future__ import annotations
 
-import time
+import math
 from dataclasses import dataclass
 
 from app.config import SafetyConfig
@@ -93,6 +87,11 @@ class SafetyManager:
         if robot_state is None or not robot_state.connected:
             return SafetyCheckResult(allowed=False, reason="ROBOT_NOT_CONNECTED")
 
+        if command.robot_id != robot_state.robot_id:
+            return SafetyCheckResult(allowed=False, reason="ROBOT_ID_MISMATCH")
+        if not all(math.isfinite(value) for value in (command.linear_x, command.linear_y, command.angular_z)):
+            return SafetyCheckResult(allowed=False, reason="NON_FINITE_COMMAND")
+
         now = now_ms()
         age_s = (now - robot_state.received_timestamp_ms) / 1000.0
         if age_s > self.config.telemetry_stale_s:
@@ -102,10 +101,12 @@ class SafetyManager:
         if last is not None and (now - last) < self._min_command_interval_ms:
             return SafetyCheckResult(allowed=False, reason="COMMAND_RATE_LIMITED")
 
+        speed = math.hypot(command.linear_x, command.linear_y)
+        scale = min(1.0, self.max_linear_speed_mps / speed) if speed else 1.0
         clamped = command.model_copy(
             update={
-                "linear_x": _clamp(command.linear_x, -self.max_linear_speed_mps, self.max_linear_speed_mps),
-                "linear_y": _clamp(command.linear_y, -self.max_linear_speed_mps, self.max_linear_speed_mps),
+                "linear_x": command.linear_x * scale,
+                "linear_y": command.linear_y * scale,
                 "angular_z": _clamp(command.angular_z, -self.max_angular_speed_radps, self.max_angular_speed_radps),
             }
         )

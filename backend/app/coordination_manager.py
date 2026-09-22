@@ -148,7 +148,11 @@ class CoordinationManager:
                     follower_id=self._follower_id,
                     mode=self._mode,
                     target_separation_m=self.target_separation_m,
-                    state=CoordinationTrackingState.IDLE,
+                    state=(
+                        CoordinationTrackingState.LOST
+                        if self._leader_id and self._follower_id
+                        else CoordinationTrackingState.IDLE
+                    ),
                 ),
                 None,
             )
@@ -208,7 +212,8 @@ class CoordinationManager:
         go-to-point controller (§reusable components in docs/audit.md),
         generalized to work regardless of which robot is the follower."""
 
-        if distance_m <= self._stop_distance_m:
+        remaining_m = distance_m - self.target_separation_m
+        if distance_m <= self._stop_distance_m or remaining_m <= 0.0:
             return RobotCommand(robot_id=follower_state.robot_id, linear_x=0.0, angular_z=0.0, source="coordination_manager")
 
         angle_error = normalize_angle_rad(bearing_rad - follower_yaw)
@@ -216,7 +221,7 @@ class CoordinationManager:
         if follower_state.robot_type == RobotType.UGV:
             angular = max(-self._max_angular_speed_radps, min(self._max_angular_speed_radps, 2.5 * angle_error))
             alignment = max(0.0, math.cos(angle_error))
-            linear = self._max_linear_speed_mps * alignment
+            linear = min(self._max_linear_speed_mps, remaining_m) * alignment
             return RobotCommand(robot_id=follower_state.robot_id, linear_x=linear, angular_z=angular, source="coordination_manager")
 
         # UAV follower: command ENU velocity directly toward the target,
@@ -224,7 +229,7 @@ class CoordinationManager:
         dx = target_x - follower_state.pose.x
         dy = target_y - follower_state.pose.y
         dist = max(1e-6, math.hypot(dx, dy))
-        speed = min(self._max_linear_speed_mps, dist)
+        speed = min(self._max_linear_speed_mps, remaining_m)
         vx = (dx / dist) * speed
         vy = (dy / dist) * speed
         return RobotCommand(robot_id=follower_state.robot_id, linear_x=vx, linear_y=vy, source="coordination_manager")

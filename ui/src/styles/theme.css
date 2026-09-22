@@ -1553,3 +1553,104 @@ table.data-table tr:hover td {
 
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .health-top { display: flex; align-items: center; gap: 6px; }
+
+/* Operator workflow: legibility, feedback, and adaptable layouts. */
+:root { --text-2: #8da2bd; }
+a { color: var(--accent-bright); }
+button, select, .button-link { min-height: 36px; }
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 3px;
+}
+button:disabled { opacity: 0.5; }
+.main-content { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.skip-link { position: fixed; top: -100px; left: 16px; z-index: 100; padding: 10px 16px; background: var(--bg-2); }
+.skip-link:focus { top: 8px; }
+a.mode-badge { text-decoration: none; min-height: 32px; }
+.connection-notice { display: flex; gap: 12px; flex-wrap: wrap; background: var(--warn-dim); color: var(--warn); padding: 8px 16px; border-bottom: 1px solid var(--warn); font-size: 12px; }
+.eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
+.connection-screen { padding-top: 32px; gap: 24px; }
+.connection-screen > * { flex-shrink: 0; }
+.connection-screen-header h1 { font-size: 28px; }
+.connection-screen-header p { font-size: 14px; }
+.robot-setup-card { flex-basis: 300px !important; }
+.setup-help { max-width: 720px; width: 100%; color: var(--text-1); }
+.setup-help summary { cursor: pointer; padding: 12px; font-size: 13px; }
+.setup-instructions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mission-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; gap: 12px; color: var(--text-1); font-size: 12px; border-bottom: 1px solid var(--border); }
+.mission-controls { flex-shrink: 0; background: var(--bg-1); }
+.controls-bar { flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; }
+.controls-left { gap: 12px; }
+.controls-right { margin-left: auto; flex-wrap: wrap; }
+.control-feedback { padding: 0 14px 10px; color: var(--text-1); font-size: 12px; overflow-wrap: anywhere; }
+.control-feedback.error, .inline-error { color: var(--crit); }
+.inline-error p { margin-bottom: 8px; }
+.emergency-control { max-width: 340px; }
+.emergency-control .inline-error { font-size: 12px; margin-top: 6px; white-space: normal; }
+.role-selector-label { font-size: 10px; }
+.role-selector-group select { min-width: 148px; }
+.record-option { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.active-roles { font-size: 12px; color: var(--text-1); }
+.badge.RUNNING, .badge.COMPLETED { color: var(--ok); background: var(--ok-dim); }
+.badge.PAUSED, .badge.ARMED { color: var(--warn); background: var(--warn-dim); }
+.badge.READY { color: var(--accent); background: var(--accent-dim); }
+.page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.page-heading h1 { font-size: 24px; }
+.page-heading p { color: var(--text-1); margin-top: 4px; }
+.review-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 20px; align-items: start; }
+.review-sidebar { max-height: 65vh; overflow-y: auto; }
+.review-detail { min-width: 0; }
+.recording-choice { display: block; width: 100%; text-align: left; white-space: normal; padding: 10px; background: transparent; border: 1px solid transparent; }
+.recording-choice span { display: block; margin-top: 4px; color: var(--text-1); font-size: 11px; }
+.recording-choice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-dim) !important; }
+.button-link { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); text-decoration: none; font-size: 12px; background: var(--bg-3); }
+.empty-state { font-size: 13px; padding: 24px; }
+.empty-state p { margin: 6px 0 14px; }
+.replay-map { height: 420px; }
+.replay-controls { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+input[type="range"] { min-height: 36px; accent-color: var(--accent); padding: 0; }
+
+@media (max-width: 1000px) {
+  .top-bar { height: auto; min-height: 56px; flex-wrap: wrap; padding: 10px 14px; }
+  .top-bar-center { order: 3; width: 100%; }
+  .nav-tabs { width: 100%; }
+  .nav-tabs a { flex: 1; text-align: center; padding: 9px; }
+  .sys-clock { display: none; }
+  .controls-right { margin-left: 0; }
+  .health-top .status-pill { display: none; }
+  .health-top .status-pill:last-child { display: inline-flex; }
+}
+@media (max-width: 700px) {
+  html, body, #root { height: auto; min-height: 100%; overflow: auto; }
+  .app-shell { height: auto; min-height: 100dvh; overflow: visible; }
+  .main-content { overflow: visible; }
+  .connection-screen, .page-content { overflow: visible; padding: 20px 14px; }
+  .connection-screen-header h1 { font-size: 24px; }
+  .setup-instructions { grid-template-columns: minmax(0, 1fr); }
+  .review-layout { grid-template-columns: minmax(0, 1fr); }
+  .review-sidebar { max-height: 240px; }
+  .main-grid { display: flex; flex-direction: column; overflow: visible; }
+  .main-grid > * { min-height: 180px; flex-shrink: 0; }
+  .main-grid .map-panel { min-height: 320px; }
+  .live-metrics-bar { flex-wrap: wrap; height: auto; min-height: 52px; overflow: visible; }
+  .replay-map { height: 300px; }
+  .controls-left, .controls-right { width: 100%; }
+  .controls-right { justify-content: space-between; }
+  button, select, .button-link, .nav-tabs a { min-height: 44px; }
+  .brand-name { font-size: 11px; }
+  .brand-sub { font-size: 8px; }
+  .top-bar { gap: 8px; }
+  .top-bar > div:last-child { gap: 4px !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+/* Preserve access to lower panels when the viewport has limited height. */
+.main-grid { overflow-y: auto; grid-template-rows: minmax(260px, 1.4fr) minmax(160px, .85fr) minmax(140px, .5fr); }
+.robot-card { flex-shrink: 0; }
+@media (max-width: 700px) {
+  .main-grid { overflow: visible; }
+  .robots-panel { max-height: none; }
+  .robots-scroll-container { overflow: visible; }
+  .lmb-metric { min-height: 40px; }
+}

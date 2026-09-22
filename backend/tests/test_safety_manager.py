@@ -86,3 +86,28 @@ def test_emergency_clear_restores_normal_operation():
     cmd = RobotCommand(robot_id="turtlebot_01", linear_x=0.1)
     result = mgr.check_and_clamp(cmd, make_state(), MissionStateEnum.RUNNING)
     assert result.allowed
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("field", ["linear_x", "linear_y", "angular_z"])
+def test_rejects_nonfinite_commands(value, field):
+    result = make_manager().check_and_clamp(
+        RobotCommand(robot_id="turtlebot_01", **{field: value}), make_state(), MissionStateEnum.RUNNING)
+    assert not result.allowed
+    assert result.reason == "NON_FINITE_COMMAND"
+
+
+def test_clamps_vector_speed_preserving_direction():
+    import math
+    result = make_manager().check_and_clamp(
+        RobotCommand(robot_id="turtlebot_01", linear_x=3, linear_y=-4), make_state(), MissionStateEnum.RUNNING)
+    assert result.allowed
+    assert math.hypot(result.command.linear_x, result.command.linear_y) == pytest.approx(0.22)
+    assert result.command.linear_x / result.command.linear_y == pytest.approx(-0.75)
+
+
+def test_rejects_wrong_robot_state():
+    result = make_manager().check_and_clamp(
+        RobotCommand(robot_id="drone_01"), make_state(), MissionStateEnum.RUNNING)
+    assert not result.allowed
+    assert result.reason == "ROBOT_ID_MISMATCH"

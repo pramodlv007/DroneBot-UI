@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/services/api";
-import type { ExperimentSummary } from "@/types/experiment";
+import { Link } from "react-router-dom";
+import { useAsyncData } from "@/hooks/useAsyncData";
+import LoadState from "@/components/LoadState";
 import type { RobotState } from "@/types/robot";
 import type { CoordinationState } from "@/types/coordination";
 import { LocalFrameMap } from "@/components/MissionMap";
@@ -15,10 +17,10 @@ interface TelemetryRow {
 const SPEEDS = [0.5, 1, 2, 4];
 
 export default function ReplayPage() {
-  const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
+  const list = useAsyncData(api.listExperiments);
+  const experiments = list.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [telemetry, setTelemetry] = useState<TelemetryRow[]>([]);
-  const [coordSamples, setCoordSamples] = useState<{ timestamp_ms: number; state_json: string }[]>([]);
+
   const [cursorMs, setCursorMs] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -26,30 +28,30 @@ export default function ReplayPage() {
   const rafRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    api.listExperiments().then(setExperiments).catch(() => setExperiments([]));
-  }, []);
-
-  useEffect(() => {
-    if (!selectedId) return;
-    setPlaying(false);
-    Promise.all([api.getExperimentTelemetryAll(selectedId), api.getExperimentCoordination(selectedId)]).then(
-      ([tel, coord]) => {
-        setTelemetry(tel);
-        setCoordSamples(coord);
-        setCursorMs(tel[0]?.timestamp_ms ?? 0);
-      }
-    );
+  const loadRecording = useCallback(async () => {
+    const [telemetry, coordination] = await Promise.all([
+      api.getExperimentTelemetryAll(selectedId!), api.getExperimentCoordination(selectedId!),
+    ]);
+    return { telemetry, coordination };
   }, [selectedId]);
+  const recording = useAsyncData(selectedId ? loadRecording : null);
+  const telemetry = recording.data?.telemetry ?? [];
+  const coordSamples = recording.data?.coordination ?? [];
+
+  useEffect(() => { setPlaying(false); setCursorMs(0); }, [selectedId]);
+  useEffect(() => {
+    if (recording.data?.telemetry.length) setCursorMs(recording.data.telemetry.reduce((min, row) => Math.min(min, row.timestamp_ms), Infinity));
+  }, [recording.data]);
 
   const { startMs, endMs } = useMemo(() => {
     if (telemetry.length === 0) return { startMs: 0, endMs: 1 };
-    const timestamps = telemetry.map((t) => t.timestamp_ms);
-    return { startMs: Math.min(...timestamps), endMs: Math.max(...timestamps) };
+    return telemetry.reduce((range, row) => ({
+      startMs: Math.min(range.startMs, row.timestamp_ms), endMs: Math.max(range.endMs, row.timestamp_ms),
+    }), { startMs: Infinity, endMs: -Infinity });
   }, [telemetry]);
 
   useEffect(() => {
-    if (!playing) {
+    if (!playing || !recording.data || telemetry.length === 0) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       lastTickRef.current = null;
       return;
@@ -68,8 +70,9 @@ export default function ReplayPage() {
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      lastTickRef.current = null;
     };
-  }, [playing, speed, startMs, endMs]);
+  }, [playing, speed, startMs, endMs, recording.data]);
 
   // Nearest-sample-at-or-before-cursor per robot, and for coordination.
   const robotsAtCursor: RobotState[] = useMemo(() => {
@@ -107,12 +110,14 @@ export default function ReplayPage() {
 
   return (
     <div className="page-content">
-      <h2 style={{ marginTop: 0 }}>Mission Replay</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 16 }}>
-        <div className="panel" style={{ maxHeight: 500, overflowY: "auto" }}>
+      <div className="page-heading"><div><div className="eyebrow">Review a recorded run</div><h1>Mission replay</h1><p>Scrub the timeline or play back robot movement at your own pace.</p></div></div>
+      <div className="review-layout">
+        <div className="panel review-sidebar">
           <div className="panel-title">Experiments</div>
+          <LoadState {...list} />
+          {!list.loading && !list.error && experiments.length === 0 && <div className="empty-state"><p>No recordings yet. Start a mission with recording enabled.</p><Link to="/?view=mission">Open mission control</Link></div>}
           {experiments.map((exp) => (
-            <div
+            <button className="recording-choice" aria-pressed={selectedId === exp.id}
               key={exp.id}
               onClick={() => setSelectedId(exp.id)}
               style={{
@@ -124,30 +129,35 @@ export default function ReplayPage() {
               }}
             >
               <div style={{ fontWeight: 600, fontSize: 12 }}>{exp.name ?? exp.id}</div>
-            </div>
+            </button>
           ))}
         </div>
 
-        <div>
-          <div className="panel" style={{ height: 420 }}>
+        <div className="review-detail">
+          <LoadState {...recording} />
+          {!selectedId && <div className="empty-state panel"><h2>Choose a recording</h2><p>Select an experiment to explore its timeline.</p></div>}
+          {selectedId && !recording.loading && !recording.error && telemetry.length > 0 && <div className="panel replay-map">
             <LocalFrameMap robots={robotsAtCursor} coordination={coordinationAtCursor} />
-          </div>
+          </div>}
 
           {telemetry.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <input
                 type="range"
+                step={100}
+                aria-label="Replay position"
+                aria-valuetext={fmtDuration((cursorMs - startMs) / 1000)}
                 min={startMs}
                 max={endMs}
                 value={cursorMs}
                 onChange={(e) => setCursorMs(Number(e.target.value))}
                 style={{ width: "100%" }}
               />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+              <div className="replay-controls">
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => setPlaying((p) => !p)}>{playing ? "PAUSE" : "PLAY"}</button>
                   {SPEEDS.map((s) => (
-                    <button key={s} className={speed === s ? "primary" : ""} onClick={() => setSpeed(s)}>
+                    <button key={s} className={speed === s ? "primary" : ""} aria-pressed={speed === s} aria-label={`Playback speed ${s}×`} onClick={() => setSpeed(s)}>
                       {s}x
                     </button>
                   ))}
@@ -158,7 +168,7 @@ export default function ReplayPage() {
               </div>
             </div>
           )}
-          {selectedId && telemetry.length === 0 && <div className="empty-state">No telemetry recorded for this experiment.</div>}
+          {selectedId && !recording.loading && !recording.error && telemetry.length === 0 && <div className="empty-state">No telemetry recorded for this experiment.</div>}
         </div>
       </div>
     </div>

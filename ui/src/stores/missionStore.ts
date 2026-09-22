@@ -20,6 +20,8 @@ const EMPTY_HEALTH: SystemHealthState = {
 
 interface MissionStoreState {
   mission: MissionState;
+  emergencyActive: boolean;
+  setEmergencyActive: (active: boolean) => void;
   systemHealth: SystemHealthState;
   supervisor: SupervisorRecommendation | null;
   setMission: (m: MissionState) => void;
@@ -29,6 +31,8 @@ interface MissionStoreState {
 
 export const useMissionStore = create<MissionStoreState>((set) => ({
   mission: EMPTY_MISSION,
+  emergencyActive: false,
+  setEmergencyActive: (emergencyActive) => set({ emergencyActive }),
   systemHealth: EMPTY_HEALTH,
   supervisor: null,
   setMission: (m) => set({ mission: m }),
