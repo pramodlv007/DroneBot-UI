@@ -51,7 +51,9 @@ export default function MissionMap() {
   const coordination = useCoordinationStore((s) => s.coordination);
   const [mode, setMode] = useState<ViewMode>("LOCAL");
 
-  const robotList = useMemo(() => Object.values(robots), [robots]);
+  // A ROS2 robot whose bridge has connected but sent no /odom yet only has a
+  // placeholder pose at the origin — don't plot that as a real position.
+  const robotList = useMemo(() => Object.values(robots).filter((r) => !r.metadata?.awaiting_odom), [robots]);
   const hasGps = robotList.some((r) => r.gps !== null);
 
   return (

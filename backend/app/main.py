@@ -378,6 +378,10 @@ async def ingest_websocket(ws: WebSocket, robot_id: str = "turtlebot_01") -> Non
     # Seed initial UGV state in telemetry_store so UI and coordination immediately register it
     initial_ugv_state = robot.adapter.get_state()
     if initial_ugv_state:
+        # Placeholder only — a zero pose, no velocity/battery. Flag it so the UI
+        # says "waiting for /odom" instead of presenting it as live telemetry.
+        # The first real state from the bridge replaces it (metadata {}).
+        initial_ugv_state = initial_ugv_state.model_copy(update={"metadata": {"awaiting_odom": True}})
         gw.telemetry_store.update_robot_state(initial_ugv_state)
         gw.registry.update_state(robot_id, initial_ugv_state)
     await gw.emit_event(
@@ -406,9 +410,22 @@ async def ingest_websocket(ws: WebSocket, robot_id: str = "turtlebot_01") -> Non
             if raw.get("type") != "state":
                 continue
             state = RobotState.model_validate(raw["state"])
+            # A socket that is actively delivering telemetry is the source of
+            # truth for connectivity. If a stale disconnect/duplicate socket
+            # left the registry saying "offline" or the adapter pointing at a
+            # different (closed) socket, heal both — otherwise the robot streams
+            # data forever while the UI shows it offline and commands go nowhere.
+            if robot.adapter is not None and getattr(robot.adapter, "_ws", ws) is not ws:
+                robot.adapter.attach_ws(ws)
             robot.adapter.ingest_state(state)
-    except Exception:
+            if not robot.connected and robot.registration is not None:
+                gw.registry.mark_connected(robot_id, robot.registration)
+    except WebSocketDisconnect:
         pass
+    except Exception:
+        # Anything other than a normal disconnect (bad payload, adapter bug)
+        # used to vanish silently and just look like "robot went offline".
+        logger.exception("Ingest handler for %s failed", robot_id)
     finally:
         if robot.adapter is not None and hasattr(robot.adapter, "detach_ws"):
             robot.adapter.detach_ws()

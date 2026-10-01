@@ -145,12 +145,12 @@ export default function RobotCard({ robot, isLeader, isFollower }: Props) {
           recover a robot once it drops (mode switch, staleness watchdog,
           manual disconnect elsewhere) without reloading back to the
           initial connection screen. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
         <button
           className={robot.connected || robot.awaitingBridge ? "danger" : "primary"}
           disabled={connBusy}
           onClick={toggleConnection}
-          style={{ flex: 1, fontSize: 11, padding: "6px" }}
+          style={{ flex: 1, fontSize: 10, padding: "4px 8px", height: 24 }}
         >
           {connBusy ? "…" : robot.connected ? "DISCONNECT" : robot.awaitingBridge ? "CANCEL" : "CONNECT"}
         </button>
@@ -185,22 +185,49 @@ export default function RobotCard({ robot, isLeader, isFollower }: Props) {
         </div>
       )}
 
-      {!s ? (
-        <div style={{ color: "var(--text-2)", fontSize: 11, padding: "8px 0" }}>
-          {robot.connected
-            ? "Waiting for telemetry…"
-            : robot.awaitingBridge
-            ? "Gateway armed — waiting for the TurtleBot bridge to connect and send /odom. Start the bridge on the robot (and its bringup, so /odom is publishing)."
-            : "Not connected"}
+      {!s || s.metadata?.awaiting_odom ? (
+        <div
+          title={
+            s?.metadata?.awaiting_odom
+              ? "Bridge connected, but no /odom data has arrived. On the robot run: ros2 topic hz /odom"
+              : robot.awaitingBridge
+              ? "Gateway armed — waiting for TurtleBot ROS2 bridge to connect and stream /odom."
+              : robot.connected
+              ? "Waiting for telemetry stream…"
+              : "Robot offline / disconnected"
+          }
+          style={{
+            color: s?.metadata?.awaiting_odom || robot.awaitingBridge ? "var(--warn)" : "var(--text-2)",
+            fontSize: 10,
+            padding: "5px 8px",
+            background: s?.metadata?.awaiting_odom || robot.awaitingBridge ? "var(--warn-dim)" : "var(--bg-3)",
+            border: `1px solid ${s?.metadata?.awaiting_odom || robot.awaitingBridge ? "rgba(217,119,6,0.2)" : "var(--border)"}`,
+            borderRadius: 5,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <span>{s?.metadata?.awaiting_odom || robot.awaitingBridge ? "⏳" : "○"}</span>
+          <span style={{ fontWeight: 600 }}>
+            {s?.metadata?.awaiting_odom
+              ? "Awaiting /odom data stream…"
+              : robot.awaitingBridge
+              ? "Awaiting ROS2 bridge /odom stream…"
+              : robot.connected
+              ? "Waiting for telemetry…"
+              : "Not connected"}
+          </span>
         </div>
       ) : (
         <>
           {/* UAV-specific: attitude + GPS */}
           {isUav && (
-            <div style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-start" }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-start" }}>
               <AttitudeIndicator
                 roll={s.pose.roll}
                 pitch={s.pose.pitch}
+                size={62}
               />
               <div style={{ flex: 1 }}>
                 <div className="telemetry-grid">

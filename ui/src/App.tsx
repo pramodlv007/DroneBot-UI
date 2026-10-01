@@ -151,12 +151,19 @@ export default function App() {
       <div className="top-bar">
         {/* Brand */}
         <div className="brand">
-          <div className="brand-icon">
-            <DroneIcon size={16} />
+          <div className="brand-icon" style={{
+            width: 34, height: 34, borderRadius: 10,
+            background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+            color: "#ffffff",
+            border: "1px solid rgba(37,99,235,0.4)",
+            boxShadow: "0 2px 8px rgba(37,99,235,0.25)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <DroneIcon size={18} />
           </div>
           <div>
-            <div className="brand-name">DroneBot Command</div>
-            <div className="brand-sub">Aerial · Ground · Real-Time</div>
+            <div className="brand-name" style={{ fontSize: 14, letterSpacing: "0.06em" }}>DroneBot</div>
+            <div className="brand-sub" style={{ fontSize: 9 }}>Command Center</div>
           </div>
         </div>
 

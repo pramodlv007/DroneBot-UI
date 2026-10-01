@@ -143,7 +143,7 @@ export default function TelemetryHistoryPanel() {
   if (robotList.length === 0) return null;
 
   return (
-    <div style={{ display: "flex", gap: 10, flex: "none" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
       {robotList.map((r) => {
         const h = historyRef.current[r.robot_id];
         if (!h) return null;
@@ -151,9 +151,26 @@ export default function TelemetryHistoryPanel() {
         const accent = isUav ? "var(--drone-color)" : "var(--bot-color)";
 
         return (
-          <div key={r.robot_id} className="panel" style={{ flex: 1, padding: "10px 12px" }}>
-            <div className="panel-title" style={{ marginBottom: 8, color: isUav ? "var(--drone-color)" : "var(--bot-color)" }}>
-              {r.robot_id.replace(/_/g, " ").toUpperCase()} · History
+          <div key={r.robot_id} style={{
+            background: "var(--bg-2)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            padding: "10px 12px",
+            boxShadow: "var(--shadow-card)",
+          }}>
+            <div style={{
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              marginBottom: 8,
+              color: isUav ? "var(--drone-color)" : "var(--bot-color)",
+              textTransform: "uppercase",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}>
+              <span>{isUav ? "🚁" : "🤖"}</span>
+              <span>{r.robot_id.replace(/_/g, " ")} · Telemetry History</span>
             </div>
             <div className="sparkline-panel">
               {isUav && (
@@ -163,7 +180,7 @@ export default function TelemetryHistoryPanel() {
                 <SparkRow label="Lin. Vel" data={h.linearVel} color={accent} unit=" m/s" digits={2} />
               )}
               {!isUav && (
-                <SparkRow label="Ang. Vel" data={h.angularVel} color="#a78bfa" unit=" r/s" digits={2} />
+                <SparkRow label="Ang. Vel" data={h.angularVel} color="#7c3aed" unit=" r/s" digits={2} />
               )}
               <SparkRow label="Battery" data={h.battery} color="var(--ok)" unit="%" digits={0} />
               <SparkRow label="Latency" data={h.latency} color="var(--warn)" unit=" ms" digits={0} />

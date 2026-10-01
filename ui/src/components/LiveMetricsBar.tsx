@@ -49,7 +49,7 @@ export default function LiveMetricsBar() {
   // header comment) — a disconnected robot's last-known frame must not
   // render here looking exactly like a live one, or the strip lies about
   // what's actually happening right now.
-  const robotList = Object.values(robots).filter((r) => r.connected);
+  const robotList = Object.values(robots).filter((r) => r.connected && !r.metadata?.awaiting_odom);
   const drone = robotList.find((r) => r.robot_type === "UAV");
   const bot = robotList.find((r) => r.robot_type === "UGV");
 
