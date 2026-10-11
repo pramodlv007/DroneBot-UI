@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import PlainTextResponse
 
 from app.state import GatewayState
@@ -52,8 +53,22 @@ async def export_experiment(
     format: str = Query("json", pattern="^(json|csv)$"),
     gw: GatewayState = Depends(get_gateway),
 ):
-    if gw.repository.get_experiment(experiment_id) is None:
+    exp = gw.repository.get_experiment(experiment_id)
+    if exp is None:
         raise HTTPException(404, f"Unknown experiment: {experiment_id}")
+    name = exp.get("name") or exp.get("mission_id") or experiment_id
+    safe_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(name))
     if format == "csv":
-        return PlainTextResponse(gw.experiment_recorder.export_csv(experiment_id), media_type="text/csv")
-    return gw.experiment_recorder.export_json(experiment_id)
+        filename = f"{safe_name}_{experiment_id}.csv"
+        return PlainTextResponse(
+            gw.experiment_recorder.export_csv(experiment_id),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    filename = f"{safe_name}_{experiment_id}.json"
+    data = gw.experiment_recorder.export_json(experiment_id)
+    return Response(
+        content=json.dumps(data, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

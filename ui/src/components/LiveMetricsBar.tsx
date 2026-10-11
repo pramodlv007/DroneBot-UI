@@ -53,6 +53,15 @@ export default function LiveMetricsBar() {
   const drone = robotList.find((r) => r.robot_type === "UAV");
   const bot = robotList.find((r) => r.robot_type === "UGV");
 
+  // Any known UGV, live or not — used to keep the bot section visible with a
+  // status badge instead of silently dropping it when it isn't streaming.
+  const anyBot = Object.values(robots).find((r) => r.robot_type === "UGV");
+  const botStatus = anyBot?.metadata?.awaiting_odom
+    ? "AWAITING /ODOM"
+    : anyBot && !anyBot.connected
+    ? "OFFLINE"
+    : "NOT CONNECTED";
+
   const droneLat = drone ? drone.received_timestamp_ms - drone.source_timestamp_ms : null;
   const botLat = bot ? bot.received_timestamp_ms - bot.source_timestamp_ms : null;
 
@@ -131,6 +140,9 @@ export default function LiveMetricsBar() {
             🤖 {bot.robot_id.replace(/_/g, " ").toUpperCase()}
           </div>
 
+          {bot.mode && (
+            <Metric label="MODE" value={bot.mode} color="var(--accent-bright)" title="Current mode" />
+          )}
           <Metric label="X" value={fmtNum(bot.pose.x, 2)} unit=" m" title="Local X (East) position" />
           <Metric label="Y" value={fmtNum(bot.pose.y, 2)} unit=" m" title="Local Y (North) position" />
           <Metric label="HDG" value={fmtNum((bot.pose.yaw * 180) / Math.PI, 0)} unit="°" title="Heading (yaw)" />
@@ -165,6 +177,24 @@ export default function LiveMetricsBar() {
             title="Telemetry latency"
           />
 
+          <Divider />
+        </>
+      )}
+      {!bot && (
+        <>
+          <div className="lmb-section-label" style={{ color: "var(--bot-color)" }}>
+            🤖 {(anyBot?.robot_id ?? "turtlebot").replace(/_/g, " ").toUpperCase()}
+          </div>
+          <Metric
+            label="STATUS"
+            value={botStatus}
+            color={botStatus === "AWAITING /ODOM" ? "var(--warn)" : "var(--text-2)"}
+            title={
+              botStatus === "AWAITING /ODOM"
+                ? "Bridge connected, but no /odom data has arrived. On the robot run: ros2 topic hz /odom"
+                : "TurtleBot is not streaming telemetry"
+            }
+          />
           <Divider />
         </>
       )}

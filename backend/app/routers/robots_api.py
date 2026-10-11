@@ -48,6 +48,14 @@ def _serialize(robot) -> dict:
             "targetSystem": robot.config.target_system,
             "targetComponent": robot.config.target_component,
             "namespace": robot.config.namespace,
+            # Informational for ROS2: the launch-command helper pre-fills
+            # these so an operator can see/override the real topic names
+            # instead of guessing at the node's "odom"/"battery_state"/
+            # "cmd_vel" defaults, which are wrong for any namespaced or
+            # custom bringup.
+            "odomTopic": robot.config.odom_topic,
+            "batteryTopic": robot.config.battery_topic,
+            "cmdVelTopic": robot.config.cmd_vel_topic,
         },
         # Indoor/GPS-denied dead-reckoning tracking (UAV/MAVLink only —
         # TurtleBots already get GPS-free position from wheel odometry).
@@ -103,6 +111,9 @@ class RobotConnectionUpdate(BaseModel):
     target_system: int | None = None
     target_component: int | None = None
     namespace: str | None = None        # ROS2: informational, for the launch-command helper
+    odom_topic: str | None = None       # ROS2: real /odom (or namespaced) topic name
+    battery_topic: str | None = None    # ROS2: real battery_state topic name
+    cmd_vel_topic: str | None = None    # ROS2: real cmd_vel topic name
 
 
 @router.patch("/{robot_id}/config")

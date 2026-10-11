@@ -87,19 +87,35 @@ function Ros2LaunchHelper({ robot }: { robot: RegisteredRobot }) {
   const [headingDeg, setHeadingDeg] = useState("0");
   const [gatewayHost, setGatewayHost] = useState(window.location.hostname);
   const [gatewayPort, setGatewayPort] = useState("8000");
+  const [odomTopic, setOdomTopic] = useState(robot.connection.odomTopic ?? "odom");
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const command = [
     "ros2 launch heterogeneous_robot_bridge turtlebot_bridge.launch.py",
     `  robot_id:=${robot.robotId}`,
     `  gateway_ws_url:=ws://${gatewayHost}:${gatewayPort}/ws/ingest`,
     `  heading_deg_from_north:=${headingDeg || "0"}`,
+    `  odom_topic:=${odomTopic || "odom"}`,
   ].join(" \\\n");
 
   async function copy() {
     await navigator.clipboard.writeText(command);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function saveOdomTopic() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.updateRobotConfig(robot.robotId, { odom_topic: odomTopic || "odom" });
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -125,6 +141,20 @@ function Ros2LaunchHelper({ robot }: { robot: RegisteredRobot }) {
         Heading (° from North the robot's front faces at boot)
         <input style={fieldInput} value={headingDeg} onChange={(e) => setHeadingDeg(e.target.value)} />
       </label>
+      <label style={fieldLabel}>
+        Odometry topic (check with <code style={{ fontFamily: "var(--mono)" }}>ros2 topic list | grep odom</code> on
+        the robot — a namespaced/custom bringup will NOT be the bare "odom" default)
+        <input style={fieldInput} value={odomTopic} onChange={(e) => setOdomTopic(e.target.value)} placeholder="odom" />
+      </label>
+      {saveError && <div style={{ color: "var(--crit)", fontSize: 10, marginTop: 4 }}>{saveError}</div>}
+      <button
+        style={{ width: "100%", marginTop: 4 }}
+        disabled={saving || robot.connected}
+        title={robot.connected ? "Disconnect first to save" : undefined}
+        onClick={saveOdomTopic}
+      >
+        {saving ? "SAVING..." : "SAVE ODOM TOPIC"}
+      </button>
 
       <pre
         className="mono"

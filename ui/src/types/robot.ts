@@ -79,6 +79,9 @@ export interface RobotConnectionParams {
   targetSystem: number | null;
   targetComponent: number | null;
   namespace: string | null;
+  odomTopic: string | null;
+  batteryTopic: string | null;
+  cmdVelTopic: string | null;
 }
 
 // Indoor/GPS-denied dead-reckoning tracking (UAV only). `supported` is
